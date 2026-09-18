@@ -19,7 +19,9 @@
       },
       {
         "tag": "remote",
-        "address": "fakeip"
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
       },
       {
         "tag": "block",
@@ -79,11 +81,6 @@
         "server": "remote"
       }
     ],
-    "fakeip": {
-      "enabled": true,
-      "inet4_range": "198.18.0.0/15",
-      "inet6_range": "fc00::/18"
-    },
     "independent_cache": true,
     "strategy": "prefer_ipv4"
   },
@@ -248,7 +245,9 @@
         "outbound": "direct"
       },
       {
-        "rule_set": "cn-ip",
+        "rule_set": [
+          "cn-ip"
+        ],
         "action": "route",
         "outbound": "direct"
       },

@@ -1,4 +1,4 @@
-#!/sbin/sh
+#!/system/bin/sh
 
 module_dir="/data/adb/modules/box4"
 

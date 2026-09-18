@@ -63,13 +63,20 @@ set_perm_recursive /data/adb/box/bin/ 0 0 0755 0700
 
 set_perm $service_dir/box4_service.sh 0 0 0700
 
-# fix "set_perm_recursive /data/adb/box/scripts" not working on some phones.
+# fix permissions not working on some phones.
 chmod ugo+x /data/adb/box/scripts/*
+[ -d /data/adb/box/bin ] && chmod ugo+x /data/adb/box/bin/*
 
 for pid in $(pidof inotifyd) ; do
   if grep -q box.inotify /proc/${pid}/cmdline ; then
     kill ${pid}
   fi
+  if grep -q webui_service.inotify /proc/${pid}/cmdline ; then
+    kill ${pid}
+  fi
 done
 
 inotifyd "/data/adb/box/scripts/box.inotify" "$MODPATH" > /dev/null 2>&1 &
+mkdir -p /data/adb/box/run/webui_service_queue
+rm -f /data/adb/box/run/webui_service_queue/* 2>/dev/null
+inotifyd "/data/adb/box/scripts/webui_service.inotify" "/data/adb/box/run/webui_service_queue:nw" > /dev/null 2>&1 &

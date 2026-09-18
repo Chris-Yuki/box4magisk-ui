@@ -291,6 +291,21 @@ queue_service_action() {
 
     mkdir -p "$request_dir" || emit_error "failed to prepare request queue" "service"
     printf '%s\n' "$action" > "$request_file" || emit_error "failed to enqueue service action" "service"
+
+    # Self-healing: if inotify daemon is not active, launch it or process queue directly
+    local is_running=false
+    for pid in $(pidof inotifyd 2>/dev/null); do
+        if grep -q "webui_service.inotify" "/proc/${pid}/cmdline" 2>/dev/null; then
+            is_running=true
+            break
+        fi
+    done
+
+    if [ "$is_running" != true ]; then
+        inotifyd "${scripts_dir}/webui_service.inotify" "${request_dir}:nw" >/dev/null 2>&1 &
+        # Also trigger immediate processing in background in case inotify missed the create event
+        nohup "${scripts_dir}/webui_service.inotify" "w" "${request_dir}" "$(basename "${request_file}")" >/dev/null 2>&1 &
+    fi
 }
 
 chain_exists() {
