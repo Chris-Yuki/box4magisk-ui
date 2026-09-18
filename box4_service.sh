@@ -15,9 +15,6 @@ ${scripts_dir}/start.sh
 )&
 
 inotifyd ${scripts_dir}/box.inotify ${module_dir} > /dev/null 2>&1 &
-mkdir -p ${run_dir}/webui_service_queue
-rm -f ${run_dir}/webui_service_queue/* 2>/dev/null
-inotifyd ${scripts_dir}/webui_service.inotify ${run_dir}/webui_service_queue:nw > /dev/null 2>&1 &
 
 while [ ! -f /data/misc/net/rt_tables ] ; do
   sleep 3

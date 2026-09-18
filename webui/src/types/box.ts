@@ -23,6 +23,11 @@ export interface BoxStatus {
   manager_control_enabled?: boolean;
   transparent_proxy_running?: boolean;
   autoStart?: boolean;
+  busy?: boolean;
+  step?: string;
+  step_label?: string;
+  error?: string | null;
+  last_action?: string;
 }
 
 export interface BoxConfig {
@@ -101,4 +106,5 @@ export interface BoxControllerState {
   handleChange: <K extends keyof BoxConfig>(key: K, value: BoxConfig[K]) => void;
   handleSaveAndApply: () => Promise<void>;
   handleToggleAutoStart: (value: boolean) => Promise<void>;
+  handleClearError: () => Promise<void>;
 }

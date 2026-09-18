@@ -87,38 +87,50 @@ export function useBoxController(): BoxControllerState {
     void init();
   }, []);
 
-  const waitForStatus = async (expectedRunning: boolean, attempts = 12, delayMs = 500) => {
-    let latestStatus = normalizeStatus(await boxBridge.status());
+  const waitForPipeline = async (attempts = 30, delayMs = 600): Promise<BoxStatus> => {
     for (let i = 0; i < attempts; i++) {
-      if (Boolean(latestStatus?.running) === expectedRunning) {
-        return latestStatus;
-      }
       await new Promise(resolve => setTimeout(resolve, delayMs));
-      latestStatus = normalizeStatus(await boxBridge.status());
+      try {
+        const current = normalizeStatus(await boxBridge.status());
+        setStatus(current);
+        if (!current.busy) {
+          return current;
+        }
+      } catch {
+        // ignore
+      }
     }
-    return latestStatus;
+    const finalStatus = normalizeStatus(await boxBridge.status());
+    setStatus(finalStatus);
+    return finalStatus;
   };
 
   const handleServiceAction = async (action: string) => {
     setActionLoading(action);
-    await new Promise(resolve => setTimeout(resolve, 50));
     try {
       if (action === 'start' || action === 'stop' || action === 'restart') {
         await boxBridge.service(action as 'start' | 'stop' | 'restart');
       }
-      const nextStatus = action === 'start'
-        ? await waitForStatus(true)
-        : action === 'restart'
-          ? await waitForStatus(true)
-          : action === 'stop'
-            ? await waitForStatus(false)
-            : await boxBridge.status();
-      setStatus(nextStatus);
-      notify(action === 'stop' ? '服务已停止' : '服务已启动');
+      const nextStatus = await waitForPipeline();
+      if (nextStatus.error) {
+        notify(`操作失败: ${nextStatus.step_label || '执行出错'}`);
+      } else {
+        notify(action === 'stop' ? '服务已停止' : '服务已启动');
+      }
     } catch (e: unknown) {
       notify(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
+  };
+
+  const handleClearError = async () => {
+    try {
+      await boxBridge.clearError();
+    } catch {
+      // ignore
+    }
+    setStatus(prev => ({ ...prev, error: null }));
   };
 
   const handleToggle = (key: string, val: boolean) => {
@@ -167,7 +179,7 @@ export function useBoxController(): BoxControllerState {
 
       await boxBridge.service('restart');
 
-      const nextStatus = await waitForStatus(true);
+      const nextStatus = await waitForPipeline();
       setStatus(nextStatus);
       setOriginalConfig(newConfig);
       notify('已保存并生效');
@@ -198,5 +210,6 @@ export function useBoxController(): BoxControllerState {
     handleChange,
     handleSaveAndApply,
     handleToggleAutoStart,
+    handleClearError,
   };
 }

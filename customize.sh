@@ -77,6 +77,4 @@ for pid in $(pidof inotifyd) ; do
 done
 
 inotifyd "/data/adb/box/scripts/box.inotify" "$MODPATH" > /dev/null 2>&1 &
-mkdir -p /data/adb/box/run/webui_service_queue
-rm -f /data/adb/box/run/webui_service_queue/* 2>/dev/null
-inotifyd "/data/adb/box/scripts/webui_service.inotify" "/data/adb/box/run/webui_service_queue:nw" > /dev/null 2>&1 &
+rm -rf /data/adb/box/run/webui_service_queue /data/adb/box/scripts/webui_service.inotify 2>/dev/null

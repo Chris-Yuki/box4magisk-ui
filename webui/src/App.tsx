@@ -24,6 +24,7 @@ export default function App() {
     handleChange,
     handleSaveAndApply,
     handleToggleAutoStart,
+    handleClearError,
   } = useBoxController();
 
   if (loading) {
@@ -54,7 +55,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="h-[calc(100dvh-53px)] overflow-y-auto pb-32 pt-2 scrollbar-hide">
-        {activeTab === 'home' && <TabHome status={status} config={config} handleServiceAction={handleServiceAction} actionLoading={actionLoading} handleChange={handleChange} handleToggle={handleToggle} handleToggleAutoStart={handleToggleAutoStart} />}
+        {activeTab === 'home' && <TabHome status={status} config={config} handleServiceAction={handleServiceAction} actionLoading={actionLoading} handleChange={handleChange} handleToggle={handleToggle} handleToggleAutoStart={handleToggleAutoStart} handleClearError={handleClearError} />}
         {activeTab === 'proxies' && <TabProxies status={status} />}
         {activeTab === 'apps' && <TabApps config={config} handleToggle={handleToggle} handleChange={handleChange} appList={appList} />}
         {activeTab === 'advanced' && <TabAdvanced status={status} config={config} handleToggle={handleToggle} handleChange={handleChange} />}

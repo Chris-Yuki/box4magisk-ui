@@ -284,28 +284,151 @@ emit_ok() {
         "${data:-null}"
 }
 
-queue_service_action() {
-    local action="$1"
-    local request_dir="/data/adb/box/run/webui_service_queue"
-    local request_file="${request_dir}/$(date +%s).$$.${action}.req"
+box_path="/data/adb/box"
+run_path="${box_path}/run"
+STATE_FILE="${run_path}/state.json"
+LOCK_FILE="${run_path}/action.lock"
 
-    mkdir -p "$request_dir" || emit_error "failed to prepare request queue" "service"
-    printf '%s\n' "$action" > "$request_file" || emit_error "failed to enqueue service action" "service"
+write_service_state() {
+    local busy="$1"
+    local step="$2"
+    local step_label="$3"
+    local error="$4"
+    local last_action="$5"
+    local updated_at
+    updated_at="$(date +%s 2>/dev/null || echo 0)"
 
-    # Self-healing: if inotify daemon is not active, launch it or process queue directly
-    local is_running=false
-    for pid in $(pidof inotifyd 2>/dev/null); do
-        if grep -q "webui_service.inotify" "/proc/${pid}/cmdline" 2>/dev/null; then
-            is_running=true
-            break
-        fi
-    done
-
-    if [ "$is_running" != true ]; then
-        inotifyd "${scripts_dir}/webui_service.inotify" "${request_dir}:nw" >/dev/null 2>&1 &
-        # Also trigger immediate processing in background in case inotify missed the create event
-        nohup "${scripts_dir}/webui_service.inotify" "w" "${request_dir}" "$(basename "${request_file}")" >/dev/null 2>&1 &
+    mkdir -p "$run_path"
+    local err_json="null"
+    if [ -n "$error" ]; then
+        err_json="\"$(json_escape "$error")\""
     fi
+
+    cat <<EOF > "${STATE_FILE}.tmp.$$"
+{"busy":$busy,"step":"$(json_escape "$step")","step_label":"$(json_escape "$step_label")","error":$err_json,"last_action":"$(json_escape "$last_action")","updated_at":$updated_at}
+EOF
+    mv -f "${STATE_FILE}.tmp.$$" "${STATE_FILE}" 2>/dev/null
+}
+
+acquire_service_lock() {
+    local action="$1"
+    mkdir -p "$run_path"
+
+    if [ -f "$LOCK_FILE" ]; then
+        local lock_pid lock_time now diff
+        lock_pid="$(cut -d: -f1 "$LOCK_FILE" 2>/dev/null)"
+        lock_time="$(cut -d: -f2 "$LOCK_FILE" 2>/dev/null)"
+        now="$(date +%s 2>/dev/null || echo 0)"
+        diff=$(( now - lock_time ))
+
+        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null && [ "$diff" -lt 30 ]; then
+            return 1
+        fi
+        rm -f "$LOCK_FILE" 2>/dev/null
+    fi
+
+    echo "$$:$(date +%s 2>/dev/null || echo 0):$action" > "$LOCK_FILE"
+    return 0
+}
+
+release_service_lock() {
+    rm -f "$LOCK_FILE" 2>/dev/null
+}
+
+run_service_pipeline() {
+    local action="$1"
+    local check_log="${run_path}/check.log"
+    local run_log="${run_path}/run.log"
+
+    (
+        source_all_configs
+
+        log_step() {
+            printf '%s [Pipeline]: %s\n' "$(date +"%Y-%m-%d %H:%M:%S" 2>/dev/null)" "$1" >> "$run_log"
+        }
+
+        case "$action" in
+            start|restart)
+                write_service_state true "checking" "正在预检内核配置..." "" "$action"
+                log_step "[$action] Step 1: Checking configuration for $bin_name"
+
+                case "$bin_name" in
+                    sing-box)
+                        if [ ! -f "$bin_path" ]; then
+                            write_service_state false "error" "缺少 sing-box 核心" "未在 /data/adb/box/bin/ 找到 sing-box 核心文件" "$action"
+                            release_service_lock
+                            exit 1
+                        fi
+                        if ! "$bin_path" check -D "${box_path}/${bin_name}" > "$check_log" 2>&1; then
+                            local err_msg
+                            err_msg="$(tail -n 10 "$check_log" 2>/dev/null)"
+                            [ -z "$err_msg" ] && err_msg="sing-box 配置校验失败"
+                            write_service_state false "error" "配置校验失败" "$err_msg" "$action"
+                            log_step "Config check failed: $err_msg"
+                            release_service_lock
+                            exit 1
+                        fi
+                        ;;
+                    clash|mihomo)
+                        if [ ! -f "$bin_path" ]; then
+                            write_service_state false "error" "缺少 $bin_name 核心" "未在 /data/adb/box/bin/ 找到核心文件" "$action"
+                            release_service_lock
+                            exit 1
+                        fi
+                        if ! "$bin_path" -t -d "${box_path}/${bin_name}" > "$check_log" 2>&1; then
+                            local err_msg
+                            err_msg="$(tail -n 10 "$check_log" 2>/dev/null)"
+                            [ -z "$err_msg" ] && err_msg="$bin_name 配置校验失败"
+                            write_service_state false "error" "配置校验失败" "$err_msg" "$action"
+                            release_service_lock
+                            exit 1
+                        fi
+                        ;;
+                esac
+
+                if [ "$action" = "restart" ]; then
+                    log_step "[$action] Stopping previous service and rules"
+                    "$TPROXY_SCRIPT" stop >> "$run_log" 2>&1
+                    "$SERVICE_SCRIPT" stop >> "$run_log" 2>&1
+                    sleep 1
+                fi
+
+                write_service_state true "starting_core" "正在启动 $bin_name 服务..." "" "$action"
+                log_step "[$action] Step 2: Starting core service"
+                if ! "$SERVICE_SCRIPT" start >> "$run_log" 2>&1; then
+                    local err_msg
+                    err_msg="$(tail -n 10 "${run_path}/error_${bin_name}.log" 2>/dev/null)"
+                    [ -z "$err_msg" ] && err_msg="$(tail -n 10 "$run_log" 2>/dev/null)"
+                    [ -z "$err_msg" ] && err_msg="启动 $bin_name 核心失败"
+                    write_service_state false "error" "核心启动失败" "$err_msg" "$action"
+                    release_service_lock
+                    exit 1
+                fi
+
+                write_service_state true "setting_tproxy" "正在配置透明代理路由..." "" "$action"
+                log_step "[$action] Step 3: Starting tproxy network rules"
+                if ! "$TPROXY_SCRIPT" start >> "$run_log" 2>&1; then
+                    write_service_state false "error" "透明代理加载失败" "透明代理规则加载失败，请检查网络模式与权限" "$action"
+                    "$SERVICE_SCRIPT" stop >> "$run_log" 2>&1
+                    release_service_lock
+                    exit 1
+                fi
+
+                write_service_state false "done" "服务运行正常" "" "$action"
+                log_step "[$action] Pipeline completed successfully."
+                release_service_lock
+                ;;
+
+            stop)
+                write_service_state true "stopping" "正在停止透明代理与内核服务..." "" "stop"
+                log_step "[stop] Stopping tproxy and service"
+                "$TPROXY_SCRIPT" stop >> "$run_log" 2>&1
+                "$SERVICE_SCRIPT" stop >> "$run_log" 2>&1
+                write_service_state false "done" "服务已停止" "" "stop"
+                release_service_lock
+                ;;
+        esac
+    ) >/dev/null 2>&1 &
 }
 
 chain_exists() {
@@ -550,10 +673,50 @@ cmd_status() {
         transparent_proxy_running=true
     fi
 
+    local busy=false
+    local step="idle"
+    local step_label=""
+    local error="null"
+    local last_action=""
+
+    if [ -f "$STATE_FILE" ]; then
+        if [ -f "$LOCK_FILE" ]; then
+            local lock_pid lock_time now diff
+            lock_pid="$(cut -d: -f1 "$LOCK_FILE" 2>/dev/null)"
+            lock_time="$(cut -d: -f2 "$LOCK_FILE" 2>/dev/null)"
+            now="$(date +%s 2>/dev/null || echo 0)"
+            diff=$(( now - lock_time ))
+            if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null && [ "$diff" -lt 30 ]; then
+                busy=true
+            fi
+        fi
+
+        step="$(grep -o '"step":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"step":[[:space:]]*"\([^"]*\)".*/\1/')"
+        step_label="$(grep -o '"step_label":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"step_label":[[:space:]]*"\([^"]*\)".*/\1/')"
+        last_action="$(grep -o '"last_action":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"last_action":[[:space:]]*"\([^"]*\)".*/\1/')"
+
+        local raw_error
+        raw_error="$(grep -o '"error":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"error":[[:space:]]*"\([^"]*\)".*/\1/')"
+        if [ -n "$raw_error" ]; then
+            error="\"$(json_escape "$raw_error")\""
+        fi
+    fi
+
     emit_ok "status" "$(cat <<EOF
-{"running":$running,"pid":"$(json_escape "$pid")","bin_name":"$(json_escape "$bin_name")","proxy_mode":$PROXY_MODE,"app_proxy_enable":$(json_bool "$APP_PROXY_ENABLE"),"app_proxy_mode":"$(json_escape "$APP_PROXY_MODE")","clash_api_port":"$(json_escape "$clash_api_port")","clash_api_secret":"$(json_escape "$clash_api_secret")","box_config_file":"$(json_escape "$BOX_CONFIG_FILE")","tproxy_config_file":"$(json_escape "$TPROXY_CONFIG_FILE")","module_root":"$(json_escape "$MODULE_ROOT")","manual_mode":$manual_mode,"module_disabled":$module_is_disabled,"autostart_enabled":$autostart_enabled,"manager_control_enabled":$manager_control_enabled,"transparent_proxy_running":$transparent_proxy_running}
+{"running":$running,"pid":"$(json_escape "$pid")","bin_name":"$(json_escape "$bin_name")","proxy_mode":$PROXY_MODE,"app_proxy_enable":$(json_bool "$APP_PROXY_ENABLE"),"app_proxy_mode":"$(json_escape "$APP_PROXY_MODE")","clash_api_port":"$(json_escape "$clash_api_port")","clash_api_secret":"$(json_escape "$clash_api_secret")","box_config_file":"$(json_escape "$BOX_CONFIG_FILE")","tproxy_config_file":"$(json_escape "$TPROXY_CONFIG_FILE")","module_root":"$(json_escape "$MODULE_ROOT")","manual_mode":$manual_mode,"module_disabled":$module_is_disabled,"autostart_enabled":$autostart_enabled,"manager_control_enabled":$manager_control_enabled,"transparent_proxy_running":$transparent_proxy_running,"busy":$busy,"step":"$(json_escape "${step:-idle}")","step_label":"$(json_escape "${step_label:-}")","error":$error,"last_action":"$(json_escape "${last_action:-}")"}
 EOF
 )"
+}
+
+cmd_clear_error() {
+    if [ -f "$STATE_FILE" ]; then
+        local step step_label last_action
+        step="$(grep -o '"step":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"step":[[:space:]]*"\([^"]*\)".*/\1/')"
+        step_label="$(grep -o '"step_label":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"step_label":[[:space:]]*"\([^"]*\)".*/\1/')"
+        last_action="$(grep -o '"last_action":[[:space:]]*"[^"]*"' "$STATE_FILE" 2>/dev/null | head -n 1 | sed 's/.*"last_action":[[:space:]]*"\([^"]*\)".*/\1/')"
+        write_service_state false "${step:-idle}" "${step_label:-}" "" "${last_action:-}"
+    fi
+    emit_ok "clear-error" "{\"cleared\":true}"
 }
 
 cmd_get_config() {
@@ -657,25 +820,21 @@ cmd_service() {
     local action="$1"
 
     case "$action" in
-        start|stop|restart|status) ;;
-        *) emit_error "unsupported service action: $action" "service" ;;
+        start|stop|restart)
+            if ! acquire_service_lock "$action"; then
+                emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"busy\":true,\"message\":\"正在执行中，请稍候\"}"
+                return 0
+            fi
+            run_service_pipeline "$action"
+            emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"busy\":true,\"message\":\"任务已启动\"}"
+            ;;
+        status)
+            cmd_status
+            ;;
+        *)
+            emit_error "unsupported service action: $action" "service"
+            ;;
     esac
-
-    if [ "$action" = "start" ] || [ "$action" = "restart" ]; then
-        queue_service_action "$action"
-        emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"async\":true,\"output\":\"scheduled\"}"
-        return 0
-    fi
-
-    local output
-    output="$("$SERVICE_SCRIPT" "$action" 2>&1)"
-    local exit_code=$?
-
-    if [ "$exit_code" -ne 0 ]; then
-        emit_error "$output" "service"
-    fi
-
-    emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"output\":\"$(json_escape "$output")\"}"
 }
 
 cmd_tproxy() {
@@ -854,7 +1013,7 @@ cmd_download_cores() {
 }
 
 cmd_help() {
-    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","apps","set-apps whitelist|blacklist|disable [LIST]","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
+    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","apps","set-apps whitelist|blacklist|disable [LIST]","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities","clear-error"]'
 }
 
 command="$1"
@@ -875,6 +1034,7 @@ case "$command" in
     mihomo-panel-url) cmd_mihomo_panel_url "$@" ;;
     download-cores) cmd_download_cores "$@" ;;
     capabilities) cmd_capabilities ;;
+    clear-error) cmd_clear_error ;;
     help|"") cmd_help ;;
     *) emit_error "unsupported command: $command" "$command" ;;
 esac
