@@ -9,7 +9,7 @@ export interface TabProxiesProps {
 }
 
 export type NodeSortType = 'default' | 'latency' | 'name';
-export type ProxyViewType = 'proxies' | 'providers';
+export type ProxyViewType = 'proxies' | 'providers' | 'subscriptions';
 
 export type ProxyPrefs = {
   viewType: ProxyViewType;

@@ -52,11 +52,11 @@ export const boxBridge = {
   setApps: (mode: "whitelist" | "blacklist" | "disable", value = "") => runApi(["set-apps", mode, value]),
   mihomoPanel: () => runApi(["mihomo-panel-url"]),
   clearError: () => runApi(["clear-error"]),
-  // mihomoSubscriptions: () => runApi(["mihomo-subscriptions"]),
-  // addMihomoSubscription: (name: string, url: string) => runApi(["mihomo-subscription-add", name, url]),
-  // updateMihomoSubscription: (currentName: string, nextName: string, url: string) =>
-  //   runApi(["mihomo-subscription-update", currentName, nextName, url]),
-  // removeMihomoSubscription: (name: string) => runApi(["mihomo-subscription-remove", name]),
+  subscriptionList: () => runApi<import('@/types/box').SubscriptionItem[]>(["subscription-list"]),
+  subscriptionSave: (items: import('@/types/box').SubscriptionItem[]) => runApi(["subscription-save", JSON.stringify(items)]),
+  fetchUrl: (url: string, ua?: string) => runApi<{ content_base64: string }>(["fetch-url", url, ua || "sing-box"]),
+  readCoreConfig: () => runApi<{ bin_name: string; path: string; content_base64: string }>(["read-core-config"]),
+  applyCoreConfig: (b64: string) => runApi<{ success: boolean; restarted: boolean }>(["apply-core-config", b64]),
 };
 
 export async function openExternalUrl(url: string) {

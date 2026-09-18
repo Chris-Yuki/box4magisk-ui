@@ -5,6 +5,15 @@ export interface AppInfo {
   isSystem: boolean;
 }
 
+export interface SubscriptionItem {
+  id: string;
+  name: string;
+  url: string;
+  type?: 'auto' | 'sing-box' | 'clash';
+  nodeCount?: number;
+  updatedAt?: number;
+}
+
 export interface BoxStatus {
   running: boolean;
   pid: string;

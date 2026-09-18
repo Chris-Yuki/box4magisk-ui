@@ -16,7 +16,7 @@ function readProxyPrefs(): ProxyPrefs {
     if (!raw) return defaultProxyPrefs;
     const parsed = JSON.parse(raw) as Partial<ProxyPrefs>;
     return {
-      viewType: parsed.viewType === 'providers' ? 'providers' : 'proxies',
+      viewType: parsed.viewType === 'providers' ? 'providers' : parsed.viewType === 'subscriptions' ? 'subscriptions' : 'proxies',
       expanded: parsed.expanded && typeof parsed.expanded === 'object' ? parsed.expanded : defaultProxyPrefs.expanded,
       expandedProviders: parsed.expandedProviders && typeof parsed.expandedProviders === 'object' ? parsed.expandedProviders : defaultProxyPrefs.expandedProviders,
       groupSorts: parsed.groupSorts && typeof parsed.groupSorts === 'object' ? parsed.groupSorts : defaultProxyPrefs.groupSorts,
