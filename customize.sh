@@ -34,6 +34,11 @@ if [ -d /data/adb/box ] ; then
   ui_print "- please re-edit box.config"
   ui_print "- after the update is complete."
 
+  if [ -d $MODPATH/box/bin ] ; then
+    mkdir -p /data/adb/box/bin/
+    cp -rf $MODPATH/box/bin/* /data/adb/box/bin/ 2>/dev/null
+  fi
+
   awk '!x[$0]++' $MODPATH/box/scripts/box.config > /data/adb/box/scripts/box.config
 
   rm -rf $MODPATH/box

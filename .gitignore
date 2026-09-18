@@ -2,3 +2,5 @@ ui/node_modules/
 webroot/
 .ai_memory
 *.zip
+box/bin/*
+!box/bin/.gitkeep
