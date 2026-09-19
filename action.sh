@@ -12,32 +12,40 @@ WEBUI_APP="io.github.a13e300.ksuwebui"
 MMRL_APP="com.dergoogler.mmrl"
 HTTP_PORT=52080
 
-# 1. 优先检测独立的 WebUI 宿主 (KsuWebUI Standalone 或 MMRL)
+# 1. 优先使用 KsuWebUI 宿主（传递必需的 id、name 与 moduleDir 参数）
 if pm list packages 2>/dev/null | grep -q "$WEBUI_APP"; then
     echo "==> 正在使用 KsuWebUI 唤起控制面板..."
-    am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1 \
-        || am start -n "${WEBUI_APP}/.WebUIActivity" -d "ksu://webui/box4" >/dev/null 2>&1
+    echo "==> 若首次打开，请务必在系统弹窗中授予 Root 权限"
+    # KsuWebUI 的 WebUIActivity 严格校验 id 和 name Extra 参数，缺失会导致直接退出
+    am start -n "${WEBUI_APP}/.WebUIActivity" \
+        --es id "box4" \
+        --es name "box4magisk" \
+        --es moduleDir "${MODDIR}" >/dev/null 2>&1
     exit 0
 fi
 
+# 2. 检测 MMRL 宿主
 if pm list packages 2>/dev/null | grep -q "$MMRL_APP"; then
     echo "==> 正在使用 MMRL 唤起控制面板..."
     am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1
     exit 0
 fi
 
-# 2. 若宿主未安装，尝试从模块 tools/ 目录静默安装随包附带的 KsuWebUI.apk
+# 3. 若宿主未安装，尝试从模块 tools/ 目录静默安装随包附带的 KsuWebUI.apk
 if [ -f "${MODDIR}/tools/KsuWebUI.apk" ]; then
     echo "==> 检测到尚未安装 WebUI 宿主，正在为您安装配套 KsuWebUI..."
     pm install -r "${MODDIR}/tools/KsuWebUI.apk" >/dev/null 2>&1
     if pm list packages 2>/dev/null | grep -q "$WEBUI_APP"; then
         echo "==> 安装成功，正在打开控制面板..."
-        am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1
+        am start -n "${WEBUI_APP}/.WebUIActivity" \
+            --es id "box4" \
+            --es name "box4magisk" \
+            --es moduleDir "${MODDIR}" >/dev/null 2>&1
         exit 0
     fi
 fi
 
-# 3. 回退方案 (Fallback)：使用系统 busybox httpd 启动本地轻量 Web 服务并通过默认浏览器打开
+# 4. 回退方案 (Fallback)：使用系统 busybox httpd 启动本地轻量 Web 服务并通过默认浏览器打开
 echo "==> 启动本地 HTTP 模式 (端口: ${HTTP_PORT})..."
 
 # 确保后台 httpd 正在运行
