@@ -100,9 +100,11 @@ if [ "$KSU" != true ] && [ "$APATCH" != true ]; then
 fi
 
 for pid in $(pidof inotifyd) ; do
-  if grep -q box.inotify /proc/${pid}/cmdline ; then
+  if grep -q -e "box.inotify" -e "webui_service.inotify" /proc/${pid}/cmdline 2>/dev/null; then
     kill ${pid}
   fi
 done
 
 inotifyd "/data/adb/box/scripts/box.inotify" "$MODPATH" > /dev/null 2>&1 &
+mkdir -p /data/adb/box/run/webui_service_queue
+inotifyd "/data/adb/box/scripts/webui_service.inotify" "/data/adb/box/run/webui_service_queue:nw" > /dev/null 2>&1 &

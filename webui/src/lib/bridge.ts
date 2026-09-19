@@ -96,6 +96,26 @@ function shellQuote(value: string) {
 
 function extractJson(stdout: string, stderr: string) {
   const source = [stdout, stderr].filter(Boolean).join("\n").trim();
+  if (!source) throw new Error("box.webui returned no output");
+
+  // 1. 优先尝试直接解析完整输出（支持含换行的多行 JSON）
+  try {
+    JSON.parse(source);
+    return source;
+  } catch {}
+
+  // 2. 查找首尾大括号截取（过滤输出前后的杂质日志或 shell 打印）
+  const firstBrace = source.indexOf("{");
+  const lastBrace = source.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = source.slice(firstBrace, lastBrace + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {}
+  }
+
+  // 3. 单行倒序扫描兜底
   const lines = source.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];

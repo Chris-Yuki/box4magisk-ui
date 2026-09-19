@@ -12,6 +12,12 @@ WEBUI_APP="io.github.a13e300.ksuwebui"
 MMRL_APP="com.dergoogler.mmrl"
 HTTP_PORT=52080
 
+# 确保后台事件监听守护进程在运行（无需重启即可平滑响应 WebUI 的服务操作）
+if ! pgrep -f "webui_service.inotify" >/dev/null 2>&1; then
+    mkdir -p /data/adb/box/run/webui_service_queue
+    inotifyd /data/adb/box/scripts/webui_service.inotify /data/adb/box/run/webui_service_queue:nw >/dev/null 2>&1 &
+fi
+
 # 1. 优先使用 KsuWebUI 宿主（传递必需的 id、name 与 moduleDir 参数）
 if pm list packages 2>/dev/null | grep -q "$WEBUI_APP"; then
     echo "==> 正在使用 KsuWebUI 唤起控制面板..."

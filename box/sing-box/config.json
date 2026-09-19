@@ -9,37 +9,30 @@
     "servers": [
       {
         "tag": "dns-remote",
-        "address": "https://1.1.1.1/dns-query",
-        "address_resolver": "dns-direct",
-        "strategy": "prefer_ipv4",
-        "detour": "Proxy"
+        "type": "https",
+        "server": "1.1.1.1",
+        "server_port": 443
       },
       {
         "tag": "dns-direct",
-        "address": "https://223.6.6.6/dns-query",
-        "address_resolver": "dns-local",
-        "strategy": "prefer_ipv4",
-        "detour": "direct"
+        "type": "https",
+        "server": "223.6.6.6",
+        "server_port": 443
       },
       {
         "tag": "dns-local",
-        "address": "223.5.5.5",
-        "detour": "direct"
+        "type": "udp",
+        "server": "223.5.5.5",
+        "server_port": 53
       },
       {
         "tag": "dns-fakeip",
-        "address": "fakeip"
-      },
-      {
-        "tag": "dns-block",
-        "address": "rcode://success"
+        "type": "fakeip",
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18"
       }
     ],
     "rules": [
-      {
-        "outbound": "any",
-        "server": "dns-direct"
-      },
       {
         "clash_mode": "Direct",
         "server": "dns-direct"
@@ -62,12 +55,6 @@
         "server": "dns-fakeip"
       }
     ],
-    "fakeip": {
-      "enabled": true,
-      "inet4_range": "198.18.0.0/15",
-      "inet6_range": "fc00::/18"
-    },
-    "independent_cache": true,
     "strategy": "prefer_ipv4"
   },
   "inbounds": [
@@ -107,13 +94,10 @@
     {
       "tag": "block",
       "type": "block"
-    },
-    {
-      "tag": "dns-out",
-      "type": "dns"
     }
   ],
   "route": {
+    "default_domain_resolver": "dns-direct",
     "rule_set": [
       {
         "tag": "geosite-cn",
@@ -135,11 +119,11 @@
     "rules": [
       {
         "protocol": "dns",
-        "outbound": "dns-out"
+        "action": "hijack-dns"
       },
       {
         "port": 53,
-        "outbound": "dns-out"
+        "action": "hijack-dns"
       },
       {
         "clash_mode": "Direct",

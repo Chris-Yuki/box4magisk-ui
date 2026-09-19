@@ -14,11 +14,14 @@ MODULE_ROOT="/data/adb/modules/box4"
 [ -n "$(magisk -v 2>/dev/null | grep lite)" ] && MODULE_ROOT="/data/adb/lite_modules/box4"
 
 json_escape() {
-    printf '%s' "$1" | sed \
-        -e 's/\\/\\\\/g' \
-        -e 's/"/\\"/g' \
-        -e 's/	/\\t/g' \
-        -e 's/\r/\\r/g'
+    printf '%s' "$1" | awk '{
+        gsub(/\\/, "\\\\")
+        gsub(/"/, "\\\"")
+        gsub(/\r/, "")
+        gsub(/\t/, "\\t")
+        if (NR > 1) printf "\\n"
+        printf "%s", $0
+    }'
 }
 
 json_bool() {
@@ -646,21 +649,46 @@ cmd_service() {
         *) emit_error "unsupported service action: $action" "service" ;;
     esac
 
-    if [ "$action" = "start" ] || [ "$action" = "restart" ]; then
-        queue_service_action "$action"
-        emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"async\":true,\"output\":\"scheduled\"}"
+    if [ "$action" = "status" ]; then
+        cmd_status
         return 0
     fi
 
-    local output
-    output="$("$SERVICE_SCRIPT" "$action" 2>&1)"
-    local exit_code=$?
+    # 确保请求队列目录存在
+    local queue_dir="${run_path}/webui_service_queue"
+    mkdir -p "$queue_dir" 2>/dev/null
 
-    if [ "$exit_code" -ne 0 ]; then
-        emit_error "$output" "service"
+    # 检查并自动启动 webui_service.inotify 守护进程（防止用户未重启系统时队列不响应）
+    if ! pgrep -f "webui_service.inotify" >/dev/null 2>&1; then
+        inotifyd "${scripts_dir}/webui_service.inotify" "${queue_dir}:nw" >/dev/null 2>&1 &
+        sleep 0.1
     fi
 
-    emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"output\":\"$(json_escape "$output")\"}"
+    if pgrep -f "webui_service.inotify" >/dev/null 2>&1; then
+        # 守护进程已就绪，投递队列
+        queue_service_action "$action"
+    else
+        # 兜底直接在后台异步执行（保证无需重启也可直接启停服务与透明代理）
+        (
+            case "$action" in
+                start)
+                    "$SERVICE_SCRIPT" start >> /dev/null 2>> "${run_path}/run.log" \
+                        && "$TPROXY_SCRIPT" start >> /dev/null 2>> "${run_path}/run.log"
+                    ;;
+                stop)
+                    "$TPROXY_SCRIPT" stop >> /dev/null 2>> "${run_path}/run.log"
+                    "$SERVICE_SCRIPT" stop >> /dev/null 2>> "${run_path}/run.log"
+                    ;;
+                restart)
+                    "$TPROXY_SCRIPT" stop >> /dev/null 2>> "${run_path}/run.log"
+                    "$SERVICE_SCRIPT" restart >> /dev/null 2>> "${run_path}/run.log" \
+                        && "$TPROXY_SCRIPT" start >> /dev/null 2>> "${run_path}/run.log"
+                    ;;
+            esac
+        ) >/dev/null 2>&1 &
+    fi
+
+    emit_ok "service" "{\"action\":\"$(json_escape "$action")\",\"async\":true,\"output\":\"scheduled\"}"
 }
 
 cmd_tproxy() {

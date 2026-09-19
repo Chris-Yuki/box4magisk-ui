@@ -87,6 +87,20 @@ export function useBoxController(): BoxControllerState {
     void init();
   }, []);
 
+  // 周期性同步状态，确保外部启停或守护进程变更能自动反映在 WebUI 上
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      if (document.hidden || actionLoading) return;
+      try {
+        const s = await boxBridge.status();
+        setStatus(normalizeStatus(s));
+      } catch {
+        // 静默处理轮询异常
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [actionLoading]);
+
   const waitForStatus = async (expectedRunning: boolean, attempts = 12, delayMs = 500) => {
     let latestStatus = normalizeStatus(await boxBridge.status());
     for (let i = 0; i < attempts; i++) {
@@ -114,7 +128,11 @@ export function useBoxController(): BoxControllerState {
             ? await waitForStatus(false)
             : await boxBridge.status();
       setStatus(nextStatus);
-      notify(action === 'stop' ? '服务已停止' : '服务已启动');
+      if (action === 'stop') {
+        notify(nextStatus.running ? '停止服务超时' : '服务已停止');
+      } else {
+        notify(nextStatus.running ? '服务已启动' : '启动失败，请检查配置或日志');
+      }
     } catch (e: unknown) {
       notify(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
     }
