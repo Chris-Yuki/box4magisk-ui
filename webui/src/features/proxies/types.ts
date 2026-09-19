@@ -5,11 +5,12 @@ export interface TabProxiesProps {
     running: boolean;
     clash_api_port: string;
     clash_api_secret: string;
+    bin_name?: string;
   };
 }
 
 export type NodeSortType = 'default' | 'latency' | 'name';
-export type ProxyViewType = 'proxies' | 'providers';
+export type ProxyViewType = 'proxies' | 'providers' | 'connections';
 
 export type ProxyPrefs = {
   viewType: ProxyViewType;
