@@ -19,6 +19,8 @@
 - **Magisk 完美横屏计划架构兼容**：
   - 内置 sing-box v1.14 arm64 核心，开箱即用免二次下载
   - 引入 KsuWebUI 独立伴侣应用与 `action.sh`，完美解决 Magisk 环境下 WebUI 面板点击闪退问题
+- **已知问题 (Known Issues)**：
+  - 日志管理与日志清理功能暂未完全生效，将在后续版本中进行修复与优化。
 
 ### v5.2
 - 重构 tproxy 逻辑
