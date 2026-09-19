@@ -20,19 +20,20 @@ VERSION="$(grep '^version=' module.prop 2>/dev/null | cut -d= -f2 | tr -d '\r\n'
 ZIP_NAME="box4_${VERSION}.zip"
 echo "==> [2/2] 正在打包 Magisk / KernelSU 模块: ${ZIP_NAME}..."
 
-# 3. 打包整个模块（排除源码与构建中间文件）
-zip -r -o -X -ll "${ZIP_NAME}" ./ \
-    -x '.git/*' \
-    -x '.github/*' \
-    -x 'build.sh' \
-    -x 'box4.json' \
-    -x 'webui/node_modules/*' \
-    -x 'webui/.gitignore' \
-    -x 'webui/tsconfig*' \
-    -x 'webui/eslint*' \
-    -x 'webui/vite.config*' \
-    -x 'webui/package-lock.json' \
-    -x 'webui/test.css' \
-    -x '*.zip'
+# 3. 打包整个模块
+if command -v python3 >/dev/null 2>&1; then
+    python3 pack.py
+elif command -v python >/dev/null 2>&1; then
+    python pack.py
+else
+    zip -r -o -X -ll "${ZIP_NAME}" ./ \
+        -x '.git/*' \
+        -x '.github/*' \
+        -x 'build.sh' \
+        -x 'pack.py' \
+        -x 'box4.json' \
+        -x 'webui/*' \
+        -x '*.zip'
+fi
 
 echo "==> 模块打包完成: ${ZIP_NAME}"

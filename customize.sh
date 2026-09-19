@@ -79,6 +79,26 @@ set_perm $service_dir/box4_service.sh 0 0 0700
 # fix "set_perm_recursive /data/adb/box/scripts" not working on some phones.
 chmod ugo+x /data/adb/box/scripts/*
 
+# Magisk WebUI 兼容适配（参考 HyperOS 完美横屏计划）
+if [ "$KSU" != true ] && [ "$APATCH" != true ]; then
+  ui_print "- Magisk environment detected"
+  if [ -f "$MODPATH/action.sh" ]; then
+    set_perm $MODPATH/action.sh 0 0 0755
+    ui_print "- Action button support enabled"
+  fi
+  # 检查是否已安装 WebUI 独立宿主应用
+  if ! pm list packages 2>/dev/null | grep -q "io.github.a13e300.ksuwebui\|com.dergoogler.mmrl"; then
+    if [ -f "$MODPATH/tools/KsuWebUI.apk" ]; then
+      ui_print "- Installing KsuWebUI companion app for Magisk..."
+      pm install -r "$MODPATH/tools/KsuWebUI.apk" >/dev/null 2>&1
+      if pm list packages 2>/dev/null | grep -q "io.github.a13e300.ksuwebui"; then
+        ui_print "- KsuWebUI installed successfully!"
+      fi
+    fi
+  fi
+  ui_print "- You can tap [Action] button in Magisk to open WebUI"
+fi
+
 for pid in $(pidof inotifyd) ; do
   if grep -q box.inotify /proc/${pid}/cmdline ; then
     kill ${pid}

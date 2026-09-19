@@ -1,0 +1,52 @@
+#!/system/bin/sh
+# -----------------------------------------------------------------------------
+# box4magisk Action Button Script (Magisk v26+)
+# 参考 HyperOS 完美横屏计划实现：一键从 Magisk 模块列表呼出 WebUI 控制台
+# -----------------------------------------------------------------------------
+
+MODDIR="/data/adb/modules/box4"
+[ -n "$(magisk -v 2>/dev/null | grep lite)" ] && MODDIR="/data/adb/lite_modules/box4"
+
+WEBROOT="${MODDIR}/webroot"
+WEBUI_APP="io.github.a13e300.ksuwebui"
+MMRL_APP="com.dergoogler.mmrl"
+HTTP_PORT=52080
+
+# 1. 优先检测独立的 WebUI 宿主 (KsuWebUI Standalone 或 MMRL)
+if pm list packages 2>/dev/null | grep -q "$WEBUI_APP"; then
+    echo "==> 正在使用 KsuWebUI 唤起控制面板..."
+    am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1 \
+        || am start -n "${WEBUI_APP}/.WebUIActivity" -d "ksu://webui/box4" >/dev/null 2>&1
+    exit 0
+fi
+
+if pm list packages 2>/dev/null | grep -q "$MMRL_APP"; then
+    echo "==> 正在使用 MMRL 唤起控制面板..."
+    am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1
+    exit 0
+fi
+
+# 2. 若宿主未安装，尝试从模块 tools/ 目录静默安装随包附带的 KsuWebUI.apk
+if [ -f "${MODDIR}/tools/KsuWebUI.apk" ]; then
+    echo "==> 检测到尚未安装 WebUI 宿主，正在为您安装配套 KsuWebUI..."
+    pm install -r "${MODDIR}/tools/KsuWebUI.apk" >/dev/null 2>&1
+    if pm list packages 2>/dev/null | grep -q "$WEBUI_APP"; then
+        echo "==> 安装成功，正在打开控制面板..."
+        am start -a android.intent.action.VIEW -d "ksu://webui/box4" >/dev/null 2>&1
+        exit 0
+    fi
+fi
+
+# 3. 回退方案 (Fallback)：使用系统 busybox httpd 启动本地轻量 Web 服务并通过默认浏览器打开
+echo "==> 启动本地 HTTP 模式 (端口: ${HTTP_PORT})..."
+
+# 确保后台 httpd 正在运行
+if ! pgrep -f "httpd -p ${HTTP_PORT}" >/dev/null 2>&1; then
+    if [ -d "$WEBROOT" ]; then
+        busybox httpd -p "127.0.0.1:${HTTP_PORT}" -h "$WEBROOT" 2>/dev/null
+    fi
+fi
+
+# 唤起系统浏览器访问
+am start -a android.intent.action.VIEW -d "http://127.0.0.1:${HTTP_PORT}" >/dev/null 2>&1
+echo "==> 已在浏览器中打开 Web 控制台: http://127.0.0.1:${HTTP_PORT}"
