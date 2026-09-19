@@ -10,6 +10,8 @@ import {
   AlertCircle,
   CheckCircle,
   Eye,
+  Check,
+  PlayCircle,
 } from 'lucide-react';
 import { Modal, EmptyState } from '@/components/ui';
 import { useSubscriptions } from '../hooks/useSubscriptions';
@@ -44,9 +46,11 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
     subscriptions,
     loading,
     updatingName,
+    applyingName,
     isSupported,
     refresh,
     addSubscription,
+    applySubscription,
     updateSubscription,
     removeSubscription,
     fetchSubscriptionNodes,
@@ -55,6 +59,7 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [subName, setSubName] = useState('');
   const [subUrl, setSubUrl] = useState('');
+  const [autoApply, setAutoApply] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   // 节点查看 Modal 状态
@@ -83,7 +88,7 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
   const handleAddSubmit = async () => {
     if (!subName.trim() || !subUrl.trim()) return;
     setSubmitting(true);
-    const success = await addSubscription(subName, subUrl);
+    const success = await addSubscription(subName, subUrl, autoApply);
     setSubmitting(false);
     if (success) {
       setSubName('');
@@ -169,38 +174,72 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
         <div className="space-y-3">
           {subscriptions.map((sub) => {
             const isUpdating = updatingName === sub.name;
+            const isApplying = applyingName === sub.name;
             return (
               <div
                 key={sub.name}
-                className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-slate-800/80 transition-colors space-y-2.5"
+                className={`bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm border transition-all space-y-2.5 ${
+                  sub.active
+                    ? 'border-emerald-300 dark:border-emerald-500/40 ring-1 ring-emerald-400/20'
+                    : 'border-slate-100 dark:border-slate-800/80'
+                }`}
               >
                 {/* 订阅名称与操作 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 font-bold text-xs">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold text-xs ${
+                      sub.active
+                        ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                    }`}>
                       {sub.name.slice(0, 2).toUpperCase()}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex items-center gap-1.5">
                       <div className="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
                         {sub.name}
                       </div>
+                      {sub.active && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 shrink-0">
+                          生效中
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* 查看节点、更新与删除按钮 */}
+                  {/* 启用、查看节点、更新与删除按钮 */}
                   <div className="flex items-center space-x-1.5 shrink-0">
                     <button
+                      onClick={() => applySubscription(sub.name)}
+                      disabled={isApplying || isUpdating}
+                      className={`px-2.5 py-1.5 rounded-xl text-xs flex items-center gap-1 font-semibold transition-all active:scale-95 ${
+                        sub.active
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 hover:bg-emerald-100'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+                      }`}
+                      title={sub.active ? '当前生效中，点击可重新应用' : '启用此订阅并接入核心'}
+                    >
+                      {isApplying ? (
+                        <RefreshCw size={13} className="animate-spin" />
+                      ) : sub.active ? (
+                        <Check size={13} />
+                      ) : (
+                        <PlayCircle size={13} />
+                      )}
+                      <span>{isApplying ? '应用中' : sub.active ? '已生效' : '启用'}</span>
+                    </button>
+
+                    <button
                       onClick={() => handleOpenNodes(sub.name)}
-                      className="px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 transition-all text-xs flex items-center gap-1 font-semibold"
+                      className="px-2 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 transition-all text-xs flex items-center gap-1 font-semibold"
                       title="查看订阅节点详情"
                     >
                       <Eye size={13} />
-                      <span>查看节点</span>
+                      <span>节点</span>
                     </button>
 
                     <button
                       onClick={() => updateSubscription(sub.name)}
-                      disabled={isUpdating}
+                      disabled={isUpdating || isApplying}
                       className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 active:scale-95 transition-all text-xs flex items-center gap-1 font-semibold"
                       title="立即更新订阅"
                     >
@@ -289,6 +328,24 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
               value={subUrl}
               onChange={(e) => setSubUrl(e.target.value)}
               className="w-full bg-slate-100 dark:bg-slate-800 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:ring-2 focus:ring-indigo-300 rounded-xl py-2 px-3 text-xs outline-none text-slate-900 dark:text-slate-100 resize-none font-mono"
+            />
+          </div>
+
+          {/* 自动启用勾选项 */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700/60">
+            <div>
+              <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                下载后立即启用此订阅
+              </div>
+              <div className="text-[11px] text-slate-400">
+                将订阅节点自动接入核心并重启生效
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={autoApply}
+              onChange={(e) => setAutoApply(e.target.checked)}
+              className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
             />
           </div>
 

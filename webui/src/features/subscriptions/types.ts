@@ -5,4 +5,6 @@ export interface Subscription {
   path: string;
   last_updated: string;
   size: number;
+  /** 是否为当前生效/使用的订阅 */
+  active?: boolean;
 }

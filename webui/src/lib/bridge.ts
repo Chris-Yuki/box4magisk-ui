@@ -205,6 +205,8 @@ export const boxBridge = {
   subscriptionRemove: (name: string) => runApi(['subscription-remove', name]),
   /** 获取订阅文件内容及节点信息 */
   subscriptionNodes: (name: string) => runApi<{ name: string; path: string; size: number; content_b64: string }>(['subscription-nodes', name]),
+  /** 启用指定订阅（设为当前核心正在使用的配置） */
+  subscriptionApply: (name: string) => runApi<{ name: string; active: boolean }>(['subscription-apply', name]),
 
   // 工具
   mihomoPanel: () => runApi(['mihomo-panel-url']),

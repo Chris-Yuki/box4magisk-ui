@@ -6,6 +6,7 @@ import {
   parseSubscriptionContent,
   type ParsedSubscription,
 } from '../lib/subscriptionParser';
+import { applySubscriptionConfig } from '../lib/subscriptionAdapter';
 
 // 支持通过文件/Provider下载管理订阅的核心
 const SUPPORTED_CORES = ['mihomo', 'clash', 'sing-box'];
@@ -15,6 +16,7 @@ export function useSubscriptions(binName: string) {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingName, setUpdatingName] = useState<string | null>(null);
+  const [applyingName, setApplyingName] = useState<string | null>(null);
 
   // 拉取订阅列表
   const fetchSubscriptions = useCallback(async () => {
@@ -33,8 +35,27 @@ export function useSubscriptions(binName: string) {
     void fetchSubscriptions();
   }, [fetchSubscriptions, binName]);
 
-  // 添加新订阅
-  const addSubscription = async (name: string, url: string) => {
+  // 启用并应用指定订阅到核心活跃配置
+  const applySubscription = async (name: string) => {
+    setApplyingName(name);
+    try {
+      notify(`正在启用订阅「${name}」并配置核心...`);
+      const nodeRes = await boxBridge.subscriptionNodes(name);
+      const rawText = decodeBase64Utf8(nodeRes.content_b64 || '');
+      await applySubscriptionConfig(name, binName, rawText);
+      notify(`订阅「${name}」已成功启用并重启核心！`);
+      await fetchSubscriptions();
+      return true;
+    } catch (e) {
+      notify(`启用订阅失败: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    } finally {
+      setApplyingName(null);
+    }
+  };
+
+  // 添加新订阅，支持下载完成后立即启用
+  const addSubscription = async (name: string, url: string, autoApply = true) => {
     if (!name.trim() || !url.trim()) {
       notify('名称和订阅链接不能为空');
       return false;
@@ -48,7 +69,12 @@ export function useSubscriptions(binName: string) {
       notify('正在下载订阅文件...');
       await boxBridge.subscriptionAdd(name.trim(), url.trim());
       notify(`订阅「${name}」已添加并下载成功`);
-      await fetchSubscriptions();
+
+      if (autoApply) {
+        await applySubscription(name.trim());
+      } else {
+        await fetchSubscriptions();
+      }
       return true;
     } catch (e) {
       notify(`添加订阅失败: ${e instanceof Error ? e.message : String(e)}`);
@@ -56,13 +82,24 @@ export function useSubscriptions(binName: string) {
     }
   };
 
-  // 更新已有订阅
+  // 更新已有订阅：如果该订阅是当前生效中的订阅，则重新应用最新配置并重启核心
   const updateSubscription = async (name: string) => {
     setUpdatingName(name);
     try {
-      notify(`正在更新「${name}」...`);
+      notify(`正在重新下载「${name}」...`);
       await boxBridge.subscriptionUpdate(name);
-      notify(`订阅「${name}」更新完成`);
+
+      // 判断该订阅是否为当前正生效的订阅
+      const targetSub = subscriptions.find(s => s.name === name);
+      if (targetSub?.active) {
+        notify(`检测到「${name}」为生效订阅，正在自动重新应用最新节点...`);
+        const nodeRes = await boxBridge.subscriptionNodes(name);
+        const rawText = decodeBase64Utf8(nodeRes.content_b64 || '');
+        await applySubscriptionConfig(name, binName, rawText);
+        notify(`订阅「${name}」更新完成，最新节点已重新生效！`);
+      } else {
+        notify(`订阅「${name}」更新完成`);
+      }
       await fetchSubscriptions();
     } catch (e) {
       notify(`更新订阅失败: ${e instanceof Error ? e.message : String(e)}`);
@@ -94,9 +131,11 @@ export function useSubscriptions(binName: string) {
     subscriptions,
     loading,
     updatingName,
+    applyingName,
     isSupported,
     refresh: fetchSubscriptions,
     addSubscription,
+    applySubscription,
     updateSubscription,
     removeSubscription,
     fetchSubscriptionNodes,

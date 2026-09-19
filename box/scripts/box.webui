@@ -1049,7 +1049,7 @@ cmd_subscription_add() {
     size="$(wc -c < "$sub_file" 2>/dev/null | tr -d ' ')"
 
     local new_entry
-    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$sub_file")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
+    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$sub_file")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0},\"active\":false}"
 
     # 保存元数据（去重并保存）
     subscription_save_filtered "$name" "$new_entry"
@@ -1081,12 +1081,16 @@ cmd_subscription_update() {
     download_to_file "$url" "$path" \
         || emit_error "failed to re-download subscription from: $(json_escape "$url")" "subscription-update"
 
-    local now size
+    local now size is_active=false
     now="$(date '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
     size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
 
+    if printf '%s' "$entry" | grep -q '"active":true'; then
+        is_active=true
+    fi
+
     local new_entry
-    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$path")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
+    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$path")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0},\"active\":$is_active}"
 
     # 过滤旧记录并保存新记录
     subscription_save_filtered "$name" "$new_entry"
@@ -1141,10 +1145,51 @@ cmd_subscription_nodes() {
     emit_ok "subscription-nodes" "{\"name\":\"$(json_escape "$name")\",\"path\":\"$(json_escape "$path")\",\"size\":${size:-0},\"content_b64\":\"$content_b64\"}"
 }
 
+# 启用指定订阅（将该订阅设为活跃订阅，并在 subscriptions.json 中将 active 设为 true）
+cmd_subscription_apply() {
+    local name="$1"
+    [ -n "$name" ] || emit_error "missing subscription name" "subscription-apply"
+
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+    [ -f "$meta_path" ] || emit_error "no subscriptions found" "subscription-apply"
+
+    local tmp_file="${meta_path}.tmp.$$"
+    local found=false line clean_line
+
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in
+            \{*\}) ;;
+            *) continue ;;
+        esac
+
+        # 移除已有的 "active":true 或 "active":false
+        clean_line="$(printf '%s' "$line" | sed 's/,"active":true//g; s/,"active":false//g; s/"active":true,//g; s/"active":false,//g')"
+        clean_line="${clean_line%\}}"
+
+        if printf '%s' "$line" | grep -F -q "\"name\":\"$(json_escape "$name")\""; then
+            found=true
+            printf '%s,"active":true}\n' "$clean_line" >> "$tmp_file"
+        else
+            printf '%s,"active":false}\n' "$clean_line" >> "$tmp_file"
+        fi
+    done < "$meta_path"
+
+    if [ "$found" != true ]; then
+        rm -f "$tmp_file" 2>/dev/null
+        emit_error "subscription not found: $(json_escape "$name")" "subscription-apply"
+    fi
+
+    mv -f "$tmp_file" "$meta_path"
+
+    emit_ok "subscription-apply" "{\"name\":\"$(json_escape "$name")\",\"active\":true}"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 cmd_help() {
-    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","clear-log","read-file PATH","write-file PATH CONTENT_B64","apps","set-apps whitelist|blacklist|disable [LIST]","subscription-list","subscription-add NAME URL","subscription-update NAME","subscription-remove NAME","subscription-nodes NAME","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
+    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","clear-log","read-file PATH","write-file PATH CONTENT_B64","apps","set-apps whitelist|blacklist|disable [LIST]","subscription-list","subscription-add NAME URL","subscription-update NAME","subscription-remove NAME","subscription-nodes NAME","subscription-apply NAME","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
 }
 
 command="$1"
@@ -1173,6 +1218,7 @@ case "$command" in
     subscription-update) cmd_subscription_update "$@" ;;
     subscription-remove) cmd_subscription_remove "$@" ;;
     subscription-nodes) cmd_subscription_nodes "$@" ;;
+    subscription-apply) cmd_subscription_apply "$@" ;;
     mihomo-panel-url) cmd_mihomo_panel_url "$@" ;;
     download-cores) cmd_download_cores "$@" ;;
     capabilities) cmd_capabilities ;;
