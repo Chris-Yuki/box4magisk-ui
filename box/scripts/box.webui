@@ -838,8 +838,250 @@ cmd_download_cores() {
     emit_ok "download-cores" "{\"arch\":{\"sing-box\":\"$(json_escape "$sing_box_arch")\",\"mihomo\":\"$(json_escape "$mihomo_arch")\",\"xray\":\"$(json_escape "$xray_arch")\"},\"installed\":$ok_count,\"failed\":$fail_count,\"results\":{${json_results}}}"
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 新增命令区：clear-log / read-file / write-file / subscription 管理
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 清空运行日志（磁盘级别真实清空，不只是前端过滤）
+cmd_clear_log() {
+    local check_log
+    check_log="$(check_log_file_path)"
+
+    if [ ! -f "$check_log" ]; then
+        emit_ok "clear-log" '{"cleared":false,"reason":"log file does not exist"}'
+        return 0
+    fi
+
+    # 将文件截断为 0 字节
+    : > "$check_log" || emit_error "failed to clear log file" "clear-log"
+    emit_ok "clear-log" '{"cleared":true}'
+}
+
+# 读取任意文件内容，以 base64 编码返回（确保二进制安全的 JSON 传输）
+cmd_read_file() {
+    local path="$1"
+    [ -n "$path" ] || emit_error "missing file path" "read-file"
+    [ -f "$path" ] || emit_error "file not found: $(json_escape "$path")" "read-file"
+
+    # 优先用系统 base64，回落到 busybox
+    local content_b64
+    content_b64="$(base64 "$path" 2>/dev/null || busybox base64 "$path" 2>/dev/null)" \
+        || emit_error "failed to encode file: $(json_escape "$path")" "read-file"
+
+    # 去掉 base64 输出中的换行符，保证 JSON 字符串安全
+    content_b64="$(printf '%s' "$content_b64" | tr -d '\n\r')"
+
+    local size
+    size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
+
+    emit_ok "read-file" "{\"path\":\"$(json_escape "$path")\",\"size\":${size:-0},\"content_b64\":\"$(json_escape "$content_b64")\"}"
+}
+
+# 将 base64 内容写回文件（配合 read-file 使用，实现 WebUI 配置文件编辑）
+cmd_write_file() {
+    local path="$1"
+    local content_b64="$2"
+
+    [ -n "$path" ] || emit_error "missing file path" "write-file"
+    [ -n "$content_b64" ] || emit_error "missing base64 content" "write-file"
+
+    # 确保目标目录存在
+    mkdir -p "$(dirname "$path")" \
+        || emit_error "failed to create parent directory for: $(json_escape "$path")" "write-file"
+
+    # 解码并写入，优先系统 base64，回落 busybox
+    printf '%s' "$content_b64" | base64 -d > "$path" 2>/dev/null \
+        || printf '%s' "$content_b64" | busybox base64 -d > "$path" 2>/dev/null \
+        || emit_error "failed to write file: $(json_escape "$path")" "write-file"
+
+    local size
+    size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
+
+    emit_ok "write-file" "{\"path\":\"$(json_escape "$path")\",\"size\":${size:-0}}"
+}
+
+# ─── 订阅管理辅助函数 ─────────────────────────────────────────────────────────
+
+# 订阅元数据文件路径（每行存一条 JSON 对象，便于 shell 操作）
+subscription_meta_path() {
+    source_box_config
+    printf '%s/subscriptions.json' "$run_path"
+}
+
+# 根据当前核心返回订阅文件的存放目录
+subscription_dir_for_core() {
+    source_box_config
+    case "$bin_name" in
+        mihomo|clash)
+            printf '%s/%s/proxy_providers' "$box_path" "$bin_name"
+            ;;
+        sing-box)
+            printf '%s/sing-box/providers' "$box_path"
+            ;;
+        *)
+            printf '%s/%s/providers' "$box_path" "$bin_name"
+            ;;
+    esac
+}
+
+# 根据当前核心返回订阅文件的扩展名
+subscription_ext_for_core() {
+    source_box_config
+    case "$bin_name" in
+        sing-box) printf 'json' ;;
+        *) printf 'yaml' ;;
+    esac
+}
+
+# 列出所有已保存的订阅，返回 JSON 数组
+cmd_subscription_list() {
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+
+    # 元数据文件不存在或为空时返回空数组
+    if [ ! -f "$meta_path" ] || [ ! -s "$meta_path" ]; then
+        emit_ok "subscription-list" "[]"
+        return 0
+    fi
+
+    # 每行是一个 JSON 对象，这里将它们组合成 JSON 数组
+    local json="[" first=true line
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        if $first; then
+            json="${json}${line}"
+            first=false
+        else
+            json="${json},${line}"
+        fi
+    done < "$meta_path"
+    json="${json}]"
+
+    emit_ok "subscription-list" "$json"
+}
+
+# 添加订阅（下载文件并保存元数据；若同名已存在则覆盖）
+cmd_subscription_add() {
+    local name="$1"
+    local url="$2"
+
+    [ -n "$name" ] || emit_error "missing subscription name" "subscription-add"
+    [ -n "$url" ] || emit_error "missing subscription URL" "subscription-add"
+
+    source_box_config
+
+    # xray/v2ray/hysteria 不支持直接订阅管理
+    case "$bin_name" in
+        xray|v2ray|hysteria)
+            emit_error "subscription management is not supported for $bin_name, please edit the config file directly" "subscription-add"
+            ;;
+    esac
+
+    local sub_dir ext sub_file meta_path
+    sub_dir="$(subscription_dir_for_core)"
+    ext="$(subscription_ext_for_core)"
+    sub_file="${sub_dir}/${name}.${ext}"
+    meta_path="$(subscription_meta_path)"
+
+    mkdir -p "$sub_dir" || emit_error "failed to create subscription directory" "subscription-add"
+
+    # 下载订阅文件
+    download_to_file "$url" "$sub_file" \
+        || emit_error "failed to download subscription from: $(json_escape "$url")" "subscription-add"
+
+    local now size
+    now="$(date '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    size="$(wc -c < "$sub_file" 2>/dev/null | tr -d ' ')"
+
+    local new_entry
+    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$sub_file")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
+
+    # 若已有同名记录，先删除旧记录
+    if [ -f "$meta_path" ] && grep -q "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null; then
+        grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
+            && mv "${meta_path}.tmp.$$" "$meta_path" \
+            || rm -f "${meta_path}.tmp.$$"
+    fi
+
+    # 追加新记录（行尾换行，便于后续 grep 操作）
+    printf '%s\n' "$new_entry" >> "$meta_path" \
+        || emit_error "failed to save subscription metadata" "subscription-add"
+
+    emit_ok "subscription-add" "$new_entry"
+}
+
+# 更新已有订阅（重新下载，刷新元数据中的 last_updated 和 size）
+cmd_subscription_update() {
+    local name="$1"
+    [ -n "$name" ] || emit_error "missing subscription name" "subscription-update"
+
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+    [ -f "$meta_path" ] || emit_error "no subscriptions found" "subscription-update"
+
+    # 从元数据中找到该订阅的 URL 和文件路径
+    local entry url path
+    entry="$(grep "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null | head -n 1)"
+    [ -n "$entry" ] || emit_error "subscription not found: $(json_escape "$name")" "subscription-update"
+
+    # 用 sed 从 JSON 对象中提取字段值（简单字符串匹配，仅适用于无嵌套场景）
+    url="$(printf '%s' "$entry" | sed 's/.*"url":"\([^"]*\)".*/\1/')"
+    path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
+
+    [ -n "$url" ] || emit_error "cannot find URL for subscription: $name" "subscription-update"
+    [ -n "$path" ] || emit_error "cannot find path for subscription: $name" "subscription-update"
+
+    # 重新下载
+    download_to_file "$url" "$path" \
+        || emit_error "failed to re-download subscription from: $(json_escape "$url")" "subscription-update"
+
+    local now size
+    now="$(date '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null)"
+    size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
+
+    local new_entry
+    new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$path")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
+
+    # 删除旧记录并追加新记录
+    grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
+        && mv "${meta_path}.tmp.$$" "$meta_path" \
+        || rm -f "${meta_path}.tmp.$$"
+    printf '%s\n' "$new_entry" >> "$meta_path"
+
+    emit_ok "subscription-update" "$new_entry"
+}
+
+# 删除订阅（同时删除已下载的文件和元数据记录）
+cmd_subscription_remove() {
+    local name="$1"
+    [ -n "$name" ] || emit_error "missing subscription name" "subscription-remove"
+
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+    [ -f "$meta_path" ] || emit_error "no subscriptions found" "subscription-remove"
+
+    # 找到该订阅对应的文件路径
+    local entry path
+    entry="$(grep "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null | head -n 1)"
+    [ -n "$entry" ] || emit_error "subscription not found: $(json_escape "$name")" "subscription-remove"
+
+    path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
+
+    # 删除订阅文件（若存在）
+    [ -n "$path" ] && [ -f "$path" ] && rm -f "$path"
+
+    # 从元数据文件中移除该条记录
+    grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
+        && mv "${meta_path}.tmp.$$" "$meta_path" \
+        || rm -f "${meta_path}.tmp.$$"
+
+    emit_ok "subscription-remove" "{\"name\":\"$(json_escape "$name")\",\"removed\":true}"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 cmd_help() {
-    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","apps","set-apps whitelist|blacklist|disable [LIST]","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
+    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","clear-log","read-file PATH","write-file PATH CONTENT_B64","apps","set-apps whitelist|blacklist|disable [LIST]","subscription-list","subscription-add NAME URL","subscription-update NAME","subscription-remove NAME","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
 }
 
 command="$1"
@@ -855,11 +1097,22 @@ case "$command" in
     tproxy) cmd_tproxy "$@" ;;
     manual-mode) cmd_manual_mode "$@" ;;
     check-log) cmd_check_log "$@" ;;
+    # 新增：清空日志文件
+    clear-log) cmd_clear_log ;;
+    # 新增：读写文件（用于配置文件编辑）
+    read-file) cmd_read_file "$@" ;;
+    write-file) cmd_write_file "$@" ;;
     apps) cmd_apps ;;
     set-apps) cmd_set_apps "$@" ;;
+    # 新增：订阅管理
+    subscription-list) cmd_subscription_list ;;
+    subscription-add) cmd_subscription_add "$@" ;;
+    subscription-update) cmd_subscription_update "$@" ;;
+    subscription-remove) cmd_subscription_remove "$@" ;;
     mihomo-panel-url) cmd_mihomo_panel_url "$@" ;;
     download-cores) cmd_download_cores "$@" ;;
     capabilities) cmd_capabilities ;;
     help|"") cmd_help ;;
     *) emit_error "unsupported command: $command" "$command" ;;
 esac
+
