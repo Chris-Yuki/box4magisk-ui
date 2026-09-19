@@ -14,7 +14,10 @@ export function Switch({ checked, onChange, disabled = false }: SwitchProps) {
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onChange(!checked);
+      }}
       // 轨道：宽 44px 高 24px，激活 indigo，未激活 slate
       className={[
         'relative inline-flex shrink-0 cursor-pointer rounded-full',

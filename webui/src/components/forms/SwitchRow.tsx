@@ -16,8 +16,9 @@ interface SwitchRowProps {
 export function SwitchRow({ label, sub, icon, checked, onChange, border = true }: SwitchRowProps) {
   return (
     <div
+      onClick={() => onChange(!checked)}
       className={[
-        'flex items-center justify-between py-3.5 px-4 transition-all duration-200',
+        'flex items-center justify-between py-3.5 px-4 cursor-pointer select-none transition-all duration-200 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 active:opacity-80',
         border ? 'border-b border-slate-100 dark:border-slate-800/50' : '',
       ].join(' ')}
     >
