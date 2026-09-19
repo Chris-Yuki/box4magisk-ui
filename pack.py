@@ -87,6 +87,7 @@ def pack():
                 is_exec = (
                     rel_path in executable_paths or
                     rel_path.startswith("box/scripts/") or
+                    rel_path.startswith("box/bin/") or
                     ext == ".sh"
                 )
                 if is_exec:

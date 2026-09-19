@@ -87,7 +87,7 @@ if [ "$KSU" != true ] && [ "$APATCH" != true ]; then
     ui_print "- Action button support enabled"
   fi
   # 检查是否已安装 WebUI 独立宿主应用
-  if ! pm list packages 2>/dev/null | grep -q "io.github.a13e300.ksuwebui\|com.dergoogler.mmrl"; then
+  if ! pm list packages 2>/dev/null | grep -q -e "io.github.a13e300.ksuwebui" -e "com.dergoogler.mmrl"; then
     if [ -f "$MODPATH/tools/KsuWebUI.apk" ]; then
       ui_print "- Installing KsuWebUI companion app for Magisk..."
       pm install -r "$MODPATH/tools/KsuWebUI.apk" >/dev/null 2>&1
