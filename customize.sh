@@ -3,7 +3,7 @@
 SKIPUNZIP=1
 ASH_STANDALONE=1
 
-if [ "$BOOTMODE" ! = true ] ; then
+if [ "$BOOTMODE" != true ] ; then
   abort "Error: Please install in Magisk Manager, KernelSU Manager or APatch"
 fi
 
@@ -34,7 +34,20 @@ if [ -d /data/adb/box ] ; then
   ui_print "- please re-edit box.config"
   ui_print "- after the update is complete."
 
-  awk '!x[$0]++' $MODPATH/box/scripts/box.config > /data/adb/box/scripts/box.config
+  # 同步内置核心文件（若目标缺失或模块带有新核心）
+  mkdir -p /data/adb/box/bin
+  if [ -d "$MODPATH/box/bin" ]; then
+    cp -rf "$MODPATH/box/bin"/* /data/adb/box/bin/ 2>/dev/null
+    ui_print "- Synchronized built-in cores to /data/adb/box/bin/"
+  fi
+
+  # 补全缺失的核心默认配置目录
+  for core in sing-box clash mihomo xray v2ray hysteria; do
+    if [ -d "$MODPATH/box/$core" ] && [ ! -d "/data/adb/box/$core" ]; then
+      cp -rf "$MODPATH/box/$core" /data/adb/box/
+      ui_print "- Initialized default config for $core"
+    fi
+  done
 
   rm -rf $MODPATH/box
 else
