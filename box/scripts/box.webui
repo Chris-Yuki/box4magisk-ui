@@ -961,6 +961,30 @@ subscription_ext_for_core() {
     esac
 }
 
+# 过滤并保存订阅元数据，排除指定名称的记录，可选追加新记录
+subscription_save_filtered() {
+    local target_name="$1"
+    local new_entry="$2"
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+    local tmp_file="${meta_path}.tmp.$$"
+
+    mkdir -p "$(dirname "$meta_path")" 2>/dev/null
+
+    if [ -f "$meta_path" ]; then
+        # 排除包含该名称的记录（使用 grep -F 固定字符串匹配，忽略 exit code 1）
+        grep -F -v "\"name\":\"$(json_escape "$target_name")\"" "$meta_path" > "$tmp_file" 2>/dev/null || true
+    else
+        : > "$tmp_file"
+    fi
+
+    if [ -n "$new_entry" ]; then
+        printf '%s\n' "$new_entry" >> "$tmp_file"
+    fi
+
+    mv -f "$tmp_file" "$meta_path"
+}
+
 # 列出所有已保存的订阅，返回 JSON 数组
 cmd_subscription_list() {
     local meta_path
@@ -976,6 +1000,10 @@ cmd_subscription_list() {
     local json="[" first=true line
     while IFS= read -r line; do
         [ -n "$line" ] || continue
+        case "$line" in
+            \{*\}) ;;
+            *) continue ;;
+        esac
         if $first; then
             json="${json}${line}"
             first=false
@@ -1005,11 +1033,10 @@ cmd_subscription_add() {
             ;;
     esac
 
-    local sub_dir ext sub_file meta_path
+    local sub_dir ext sub_file
     sub_dir="$(subscription_dir_for_core)"
     ext="$(subscription_ext_for_core)"
     sub_file="${sub_dir}/${name}.${ext}"
-    meta_path="$(subscription_meta_path)"
 
     mkdir -p "$sub_dir" || emit_error "failed to create subscription directory" "subscription-add"
 
@@ -1024,16 +1051,8 @@ cmd_subscription_add() {
     local new_entry
     new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$sub_file")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
 
-    # 若已有同名记录，先删除旧记录
-    if [ -f "$meta_path" ] && grep -q "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null; then
-        grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
-            && mv "${meta_path}.tmp.$$" "$meta_path" \
-            || rm -f "${meta_path}.tmp.$$"
-    fi
-
-    # 追加新记录（行尾换行，便于后续 grep 操作）
-    printf '%s\n' "$new_entry" >> "$meta_path" \
-        || emit_error "failed to save subscription metadata" "subscription-add"
+    # 保存元数据（去重并保存）
+    subscription_save_filtered "$name" "$new_entry"
 
     emit_ok "subscription-add" "$new_entry"
 }
@@ -1052,7 +1071,6 @@ cmd_subscription_update() {
     entry="$(grep "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null | head -n 1)"
     [ -n "$entry" ] || emit_error "subscription not found: $(json_escape "$name")" "subscription-update"
 
-    # 用 sed 从 JSON 对象中提取字段值（简单字符串匹配，仅适用于无嵌套场景）
     url="$(printf '%s' "$entry" | sed 's/.*"url":"\([^"]*\)".*/\1/')"
     path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
 
@@ -1070,11 +1088,8 @@ cmd_subscription_update() {
     local new_entry
     new_entry="{\"name\":\"$(json_escape "$name")\",\"url\":\"$(json_escape "$url")\",\"path\":\"$(json_escape "$path")\",\"last_updated\":\"$(json_escape "$now")\",\"size\":${size:-0}}"
 
-    # 删除旧记录并追加新记录
-    grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
-        && mv "${meta_path}.tmp.$$" "$meta_path" \
-        || rm -f "${meta_path}.tmp.$$"
-    printf '%s\n' "$new_entry" >> "$meta_path"
+    # 过滤旧记录并保存新记录
+    subscription_save_filtered "$name" "$new_entry"
 
     emit_ok "subscription-update" "$new_entry"
 }
@@ -1091,25 +1106,45 @@ cmd_subscription_remove() {
     # 找到该订阅对应的文件路径
     local entry path
     entry="$(grep "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null | head -n 1)"
-    [ -n "$entry" ] || emit_error "subscription not found: $(json_escape "$name")" "subscription-remove"
 
-    path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
+    if [ -n "$entry" ]; then
+        path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
+        [ -n "$path" ] && [ -f "$path" ] && rm -f "$path"
+    fi
 
-    # 删除订阅文件（若存在）
-    [ -n "$path" ] && [ -f "$path" ] && rm -f "$path"
-
-    # 从元数据文件中移除该条记录
-    grep -v "\"name\":\"$(json_escape "$name")\"" "$meta_path" > "${meta_path}.tmp.$$" \
-        && mv "${meta_path}.tmp.$$" "$meta_path" \
-        || rm -f "${meta_path}.tmp.$$"
+    # 从元数据文件中移除该条记录（支持全部删除，不依赖 grep 返回值）
+    subscription_save_filtered "$name"
 
     emit_ok "subscription-remove" "{\"name\":\"$(json_escape "$name")\",\"removed\":true}"
+}
+
+# 获取订阅节点及文件内容（支持前端解析展示各协议节点）
+cmd_subscription_nodes() {
+    local name="$1"
+    [ -n "$name" ] || emit_error "missing subscription name" "subscription-nodes"
+
+    local meta_path
+    meta_path="$(subscription_meta_path)"
+    [ -f "$meta_path" ] || emit_error "no subscriptions found" "subscription-nodes"
+
+    local entry path
+    entry="$(grep "\"name\":\"$(json_escape "$name")\"" "$meta_path" 2>/dev/null | head -n 1)"
+    [ -n "$entry" ] || emit_error "subscription not found: $(json_escape "$name")" "subscription-nodes"
+
+    path="$(printf '%s' "$entry" | sed 's/.*"path":"\([^"]*\)".*/\1/')"
+    [ -n "$path" ] && [ -f "$path" ] || emit_error "subscription file not found: $(json_escape "$path")" "subscription-nodes"
+
+    local size content_b64
+    size="$(wc -c < "$path" 2>/dev/null | tr -d ' ')"
+    content_b64="$( (base64 < "$path" 2>/dev/null || busybox base64 < "$path" 2>/dev/null) | tr -d '\r\n')"
+
+    emit_ok "subscription-nodes" "{\"name\":\"$(json_escape "$name")\",\"path\":\"$(json_escape "$path")\",\"size\":${size:-0},\"content_b64\":\"$content_b64\"}"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 cmd_help() {
-    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","clear-log","read-file PATH","write-file PATH CONTENT_B64","apps","set-apps whitelist|blacklist|disable [LIST]","subscription-list","subscription-add NAME URL","subscription-update NAME","subscription-remove NAME","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
+    emit_ok "help" '["status","get-config","set-config KEY [VALUE]","set-number KEY VALUE","toggle KEY 0|1","service start|stop|restart|status","tproxy start|stop|restart|status","manual-mode [status|enable|disable]","check-log [LINES]","clear-log","read-file PATH","write-file PATH CONTENT_B64","apps","set-apps whitelist|blacklist|disable [LIST]","subscription-list","subscription-add NAME URL","subscription-update NAME","subscription-remove NAME","subscription-nodes NAME","mihomo-panel-url [HOST] [PORT] [SECRET] [http|https]","download-cores","capabilities"]'
 }
 
 command="$1"
@@ -1137,10 +1172,12 @@ case "$command" in
     subscription-add) cmd_subscription_add "$@" ;;
     subscription-update) cmd_subscription_update "$@" ;;
     subscription-remove) cmd_subscription_remove "$@" ;;
+    subscription-nodes) cmd_subscription_nodes "$@" ;;
     mihomo-panel-url) cmd_mihomo_panel_url "$@" ;;
     download-cores) cmd_download_cores "$@" ;;
     capabilities) cmd_capabilities ;;
     help|"") cmd_help ;;
     *) emit_error "unsupported command: $command" "$command" ;;
 esac
+
 

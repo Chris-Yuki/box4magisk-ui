@@ -9,9 +9,12 @@ import {
   HardDrive,
   AlertCircle,
   CheckCircle,
+  Eye,
 } from 'lucide-react';
 import { Modal, EmptyState } from '@/components/ui';
 import { useSubscriptions } from '../hooks/useSubscriptions';
+import { SubscriptionNodesModal } from './SubscriptionNodesModal';
+import type { ParsedSubscription } from '../lib/subscriptionParser';
 
 interface SubscriptionPageProps {
   binName: string;
@@ -46,12 +49,35 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
     addSubscription,
     updateSubscription,
     removeSubscription,
+    fetchSubscriptionNodes,
   } = useSubscriptions(binName);
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [subName, setSubName] = useState('');
   const [subUrl, setSubUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // 节点查看 Modal 状态
+  const [selectedSubForNodes, setSelectedSubForNodes] = useState<string | null>(null);
+  const [parsedData, setParsedData] = useState<ParsedSubscription | null>(null);
+  const [nodesLoading, setNodesLoading] = useState(false);
+  const [nodesError, setNodesError] = useState<string | null>(null);
+
+  // 打开节点查看面板
+  const handleOpenNodes = async (name: string) => {
+    setSelectedSubForNodes(name);
+    setParsedData(null);
+    setNodesError(null);
+    setNodesLoading(true);
+    try {
+      const data = await fetchSubscriptionNodes(name);
+      setParsedData(data);
+    } catch (e) {
+      setNodesError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setNodesLoading(false);
+    }
+  };
 
   // 提交添加订阅
   const handleAddSubmit = async () => {
@@ -161,8 +187,17 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
                     </div>
                   </div>
 
-                  {/* 更新与删除按钮 */}
+                  {/* 查看节点、更新与删除按钮 */}
                   <div className="flex items-center space-x-1.5 shrink-0">
+                    <button
+                      onClick={() => handleOpenNodes(sub.name)}
+                      className="px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95 transition-all text-xs flex items-center gap-1 font-semibold"
+                      title="查看订阅节点详情"
+                    >
+                      <Eye size={13} />
+                      <span>查看节点</span>
+                    </button>
+
                     <button
                       onClick={() => updateSubscription(sub.name)}
                       disabled={isUpdating}
@@ -262,6 +297,16 @@ export function SubscriptionPage({ binName, onBack }: SubscriptionPageProps) {
           </p>
         </div>
       </Modal>
+
+      {/* 节点详情查看抽屉/弹窗 */}
+      <SubscriptionNodesModal
+        isOpen={Boolean(selectedSubForNodes)}
+        onClose={() => setSelectedSubForNodes(null)}
+        subName={selectedSubForNodes || ''}
+        parsedData={parsedData}
+        loading={nodesLoading}
+        error={nodesError}
+      />
     </div>
   );
 }

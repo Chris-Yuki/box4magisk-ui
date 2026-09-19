@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { boxBridge, notify } from '@/lib/bridge';
 import type { Subscription } from '../types';
+import {
+  decodeBase64Utf8,
+  parseSubscriptionContent,
+  type ParsedSubscription,
+} from '../lib/subscriptionParser';
 
 // 支持通过文件/Provider下载管理订阅的核心
 const SUPPORTED_CORES = ['mihomo', 'clash', 'sing-box'];
@@ -17,7 +22,7 @@ export function useSubscriptions(binName: string) {
     try {
       const data = await boxBridge.subscriptionList();
       setSubscriptions(Array.isArray(data) ? data : []);
-    } catch (e) {
+    } catch {
       setSubscriptions([]);
     } finally {
       setLoading(false);
@@ -72,9 +77,17 @@ export function useSubscriptions(binName: string) {
       await boxBridge.subscriptionRemove(name);
       notify(`订阅「${name}」已删除`);
       setSubscriptions(prev => prev.filter(s => s.name !== name));
+      await fetchSubscriptions();
     } catch (e) {
       notify(`删除失败: ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+
+  // 获取并解析订阅节点
+  const fetchSubscriptionNodes = async (name: string): Promise<ParsedSubscription> => {
+    const res = await boxBridge.subscriptionNodes(name);
+    const rawText = decodeBase64Utf8(res.content_b64 || '');
+    return parseSubscriptionContent(rawText);
   };
 
   return {
@@ -86,5 +99,7 @@ export function useSubscriptions(binName: string) {
     addSubscription,
     updateSubscription,
     removeSubscription,
+    fetchSubscriptionNodes,
   };
 }
+

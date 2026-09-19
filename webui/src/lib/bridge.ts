@@ -72,6 +72,18 @@ const MOCK_RESPONSES: Record<string, any> = {
   },
   'clear-log': { cleared: true },
   'subscription-list': [],
+  'subscription-nodes': {
+    name: 'demo',
+    path: '/data/adb/box/sing-box/providers/demo.json',
+    size: 1024,
+    content_b64: btoa(JSON.stringify({
+      outbounds: [
+        { type: 'vless', tag: 'HK 01 VLESS Reality', server: '1.2.3.4', server_port: 443, tls: { enabled: true, reality: { enabled: true } } },
+        { type: 'tuic', tag: 'JP 02 TUIC v5', server: 'jp.example.com', server_port: 8443 },
+        { type: 'selector', tag: 'Node Selection', outbounds: ['HK 01 VLESS Reality', 'JP 02 TUIC v5'] }
+      ]
+    })),
+  },
   capabilities: {
     commands: { ipset: true },
     kernel: { config_gz: true, tproxy: true, ip_set: true, xt_set: true },
@@ -191,6 +203,8 @@ export const boxBridge = {
   subscriptionUpdate: (name: string) => runApi(['subscription-update', name]),
   /** 删除订阅及其文件 */
   subscriptionRemove: (name: string) => runApi(['subscription-remove', name]),
+  /** 获取订阅文件内容及节点信息 */
+  subscriptionNodes: (name: string) => runApi<{ name: string; path: string; size: number; content_b64: string }>(['subscription-nodes', name]),
 
   // 工具
   mihomoPanel: () => runApi(['mihomo-panel-url']),
