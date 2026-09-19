@@ -14,7 +14,7 @@ import {
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
-import { SectionTitle, SwitchRow, SelectRow } from '@/components/ui';
+import { SectionTitle, SwitchRow, SelectRow, Switch } from '@/components/ui';
 import { ClashClient, type ClashMemory } from '@/lib/clash';
 import { boxBridge, notify } from '@/lib/bridge';
 import { useProxyData } from '@/features/proxies/hooks/useProxyData';
@@ -79,6 +79,8 @@ interface DashboardPageProps {
   handleChange: <K extends keyof BoxConfig>(key: K, value: BoxConfig[K]) => void;
   handleToggle: (key: string, value: boolean) => void;
   handleToggleAutoStart: (value: boolean) => void;
+  /** 切换透明代理开关 */
+  handleToggleTproxy?: (enabled: boolean) => Promise<void>;
   /** 实时流量统计（来自 Clash WebSocket） */
   trafficStats?: TrafficStats | null;
 }
@@ -91,6 +93,7 @@ export function DashboardPage({
   handleChange,
   handleToggle,
   handleToggleAutoStart,
+  handleToggleTproxy,
   trafficStats,
 }: DashboardPageProps) {
   const { currentMode, handleChangeMode } = useProxyData(status);
@@ -216,15 +219,32 @@ export function DashboardPage({
           </button>
         </div>
 
-        {/* 状态徽标行 */}
+        {/* 状态徽标与透明代理控制行 */}
         <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-          <div className="flex items-center gap-1.5">
-            {status?.transparent_proxy_running ? (
-              <CheckCircle2 size={14} className="text-emerald-500" />
-            ) : (
-              <XCircle size={14} className="text-slate-400" />
-            )}
-            <span>透明代理: {status?.transparent_proxy_running ? '生效中' : '未转发'}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              {status?.transparent_proxy_running ? (
+                <CheckCircle2 size={14} className="text-emerald-500" />
+              ) : (
+                <XCircle size={14} className="text-slate-400" />
+              )}
+              <span className="font-semibold text-slate-700 dark:text-slate-300">透明代理</span>
+            </div>
+            <Switch
+              checked={Boolean(status?.transparent_proxy_running)}
+              disabled={actionLoading === 'tproxy'}
+              onChange={(checked: boolean) => {
+                if (handleToggleTproxy) {
+                  void handleToggleTproxy(checked);
+                } else {
+                  void boxBridge.tproxy(checked ? 'start' : 'stop')
+                    .then(() => handleServiceAction('status'));
+                }
+              }}
+            />
+            <span className="text-[11px] text-slate-400">
+              {actionLoading === 'tproxy' ? '切换中...' : (status?.transparent_proxy_running ? '生效中' : '已关闭')}
+            </span>
           </div>
 
           <button

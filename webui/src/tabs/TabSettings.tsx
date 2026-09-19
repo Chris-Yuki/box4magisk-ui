@@ -7,7 +7,7 @@ import type { BoxControllerState } from '@/types/box';
 
 type TabSettingsProps = Pick<
   BoxControllerState,
-  'status' | 'config' | 'handleToggle' | 'handleChange'
+  'status' | 'config' | 'handleToggle' | 'handleChange' | 'handleToggleTproxy'
 >;
 
 type SubView = 'main' | 'subscriptions' | 'config-editor';

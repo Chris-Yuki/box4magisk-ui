@@ -10,6 +10,7 @@ type TabHomeProps = Pick<
   | 'handleChange'
   | 'handleToggle'
   | 'handleToggleAutoStart'
+  | 'handleToggleTproxy'
 > & {
   trafficStats?: TrafficStats | null;
 };

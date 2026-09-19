@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { BookOpen, ChevronRight, ExternalLink, FolderCog, FolderGit, Info, ListFilter, Mail, Network, Route, TriangleAlert, X } from 'lucide-react';
 import { InputRow, SectionTitle, SelectRow, SwitchRow } from '@/components/ui';
-import { notify, openExternalUrl } from '@/lib/bridge';
+import { boxBridge, notify, openExternalUrl } from '@/lib/bridge';
 import { ensureFieldVisible } from '@/lib/focus';
 import type { BoxConfig, BoxStatus } from '@/types/box';
 
@@ -32,6 +32,7 @@ interface SettingsPageProps {
   config: BoxConfig;
   handleToggle: (key: string, value: boolean) => void;
   handleChange: <K extends keyof BoxConfig>(key: K, value: BoxConfig[K]) => void;
+  handleToggleTproxy?: (enabled: boolean) => Promise<void>;
 }
 
 interface SecondaryEntryRowProps {
@@ -240,7 +241,7 @@ function MaintainerButton({ label, value, href }: MaintainerButtonProps) {
   );
 }
 
-export function SettingsPage({ status, config, handleToggle, handleChange }: SettingsPageProps) {
+export function SettingsPage({ status, config, handleToggle, handleChange, handleToggleTproxy }: SettingsPageProps) {
   const [activePanel, setActivePanel] = useState<AdvancedPanelKey>(null);
 
   const handleNumberInput = <K extends keyof BoxConfig>(key: K, value: string) => {
@@ -272,6 +273,25 @@ export function SettingsPage({ status, config, handleToggle, handleChange }: Set
               <span>打开 YACD 面板</span>
             </a>
           </div>
+        </div>
+      </div>
+
+      <div>
+        <SectionTitle title="透明代理转发" />
+        <div className="rounded-2xl border border-slate-100 bg-white p-2 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900">
+          <SwitchRow
+            label="透明代理总开关"
+            sub={status?.transparent_proxy_running ? 'iptables 转发链正在运行中' : '转发链已停止，设备流量直连不走核心'}
+            checked={Boolean(status?.transparent_proxy_running)}
+            onChange={(value: boolean) => {
+              if (handleToggleTproxy) {
+                void handleToggleTproxy(value);
+              } else {
+                void boxBridge.tproxy(value ? 'start' : 'stop');
+              }
+            }}
+            border={false}
+          />
         </div>
       </div>
 

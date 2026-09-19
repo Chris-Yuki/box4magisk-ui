@@ -5,7 +5,7 @@ import {
   Home,
   Layers,
   Settings2,
-  Smartphone,
+  Monitor,
   Moon,
   Sun,
   Server,
@@ -46,6 +46,7 @@ export default function App() {
     handleChange,
     handleSaveAndApply,
     handleToggleAutoStart,
+    handleToggleTproxy,
   } = useBoxController();
 
   // 实时流量统计 Hook（服务运行中时通过 WebSocket 监听）
@@ -109,13 +110,13 @@ export default function App() {
 
             <button
               onClick={cycleTheme}
-              className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 transition-all"
-              title="切换主题"
+              className="p-2 rounded-full text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title={`切换主题（当前：${theme}）`}
             >
-              {theme === 'system' ? (
-                <Smartphone size={15} />
-              ) : theme === 'dark' ? (
-                <Moon size={15} />
+              {theme === 'dark' ? (
+                <Moon size={15} className="text-indigo-400" />
+              ) : theme === 'system' ? (
+                <Monitor size={15} />
               ) : (
                 <Sun size={15} />
               )}
@@ -135,6 +136,7 @@ export default function App() {
             handleChange={handleChange}
             handleToggle={handleToggle}
             handleToggleAutoStart={handleToggleAutoStart}
+            handleToggleTproxy={handleToggleTproxy}
             trafficStats={trafficStats}
           />
         )}
@@ -154,6 +156,7 @@ export default function App() {
             config={config}
             handleToggle={handleToggle}
             handleChange={handleChange}
+            handleToggleTproxy={handleToggleTproxy}
           />
         )}
       </main>

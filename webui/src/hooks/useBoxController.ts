@@ -204,6 +204,20 @@ export function useBoxController(): BoxControllerState {
     }
   };
 
+  const handleToggleTproxy = async (value: boolean) => {
+    setActionLoading('tproxy');
+    try {
+      await boxBridge.tproxy(value ? 'start' : 'stop');
+      const latest = normalizeStatus(await boxBridge.status());
+      setStatus(latest);
+      notify(value ? '透明代理已开启' : '透明代理已停止');
+    } catch (e: unknown) {
+      notify(`透明代理切换失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return {
     loading,
     status,
@@ -216,5 +230,6 @@ export function useBoxController(): BoxControllerState {
     handleChange,
     handleSaveAndApply,
     handleToggleAutoStart,
+    handleToggleTproxy,
   };
 }

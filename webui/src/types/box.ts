@@ -101,6 +101,8 @@ export interface BoxControllerState {
   handleChange: <K extends keyof BoxConfig>(key: K, value: BoxConfig[K]) => void;
   handleSaveAndApply: () => Promise<void>;
   handleToggleAutoStart: (value: boolean) => Promise<void>;
+  /** 切换透明代理开关 */
+  handleToggleTproxy: (enabled: boolean) => Promise<void>;
 }
 
 // ── 订阅信息 ──────────────────────────────────────────────────────────────────
@@ -114,6 +116,8 @@ export interface SubscriptionInfo {
   last_updated: string;
   /** 文件大小（字节） */
   size: number;
+  /** 是否为当前生效/使用的订阅 */
+  active?: boolean;
 }
 
 // ── 流量统计 ──────────────────────────────────────────────────────────────────
