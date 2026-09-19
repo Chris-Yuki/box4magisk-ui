@@ -64,6 +64,23 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
     return new Set(String(rawString).split(/\s+/).filter(Boolean));
   }, [rawString]);
 
+  // 当处于"已选择"标签且已选应用清空时，自动切回"运行中"
+  useEffect(() => {
+    if (filter === 'selected' && checkedSet.size === 0) {
+      setFilter('running');
+    }
+  }, [filter, checkedSet.size]);
+
+  // 动态筛选标签：只有存在已选应用时，才出现"已选择"分类
+  const availableFilters = useMemo<FilterType[]>(() => {
+    const list: FilterType[] = [];
+    if (checkedSet.size > 0) {
+      list.push('selected');
+    }
+    list.push('running', 'user', 'system', 'all');
+    return list;
+  }, [checkedSet.size]);
+
   const filteredApps = useMemo(() => {
     return (appList || []).filter((app: AppInfo) => {
       // 按分类筛选
@@ -126,12 +143,16 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
           <div className="flex items-center justify-between">
             <div className="flex space-x-2 overflow-x-auto scrollbar-hide items-center">
               {/* 分类筛选标签 */}
-              {(['selected', 'running', 'user', 'system', 'all'] as const).map(t => (
+              {availableFilters.map(t => (
                 <button
                   key={t} onClick={() => setFilter(t)} disabled={config?.APP_PROXY_ENABLE === 0}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${filter === t ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}
                 >
                   {FILTER_LABELS[t]}
+                  {/* 已选择分类显示数量 */}
+                  {t === 'selected' && (
+                    <span className="ml-1 text-[10px] opacity-70">({checkedSet.size})</span>
+                  )}
                   {/* 运行中分类显示数量 */}
                   {t === 'running' && runningPkgs.size > 0 && (
                     <span className="ml-1 text-[10px] opacity-70">({runningPkgs.size})</span>
@@ -148,7 +169,16 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
                 <RefreshCw size={14} className={loadingRunning ? 'animate-spin' : ''} />
               </button>
             </div>
-            <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-md shrink-0 transition-colors">
+            <span
+              onClick={() => {
+                if (checkedSet.size > 0 && config?.APP_PROXY_ENABLE !== 0) {
+                  setFilter('selected');
+                }
+              }}
+              className={`text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-md shrink-0 transition-colors ${
+                checkedSet.size > 0 && config?.APP_PROXY_ENABLE !== 0 ? 'cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-500/20 active:scale-95' : ''
+              }`}
+            >
               已选 {checkedSet.size}
             </span>
           </div>
