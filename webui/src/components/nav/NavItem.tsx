@@ -1,3 +1,7 @@
+// NavItem - 底部导航栏单项
+// 激活时：图标/标签变 indigo 色，顶部显示 2px 渐变指示条
+// 未激活：text-slate-400，整体 transition-all duration-200
+
 import React from 'react';
 
 interface NavItemProps {
@@ -9,14 +13,43 @@ interface NavItemProps {
 
 export function NavItem({ icon, label, active, onClick }: NavItemProps) {
   return (
-    <button onClick={onClick} className="flex flex-col items-center justify-center w-20 h-12 transition-transform active:scale-95 relative">
-      <div className={`transition-colors duration-300 ${active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'}`}>
+    <button
+      onClick={onClick}
+      className="relative flex flex-col items-center justify-center w-20 h-12 transition-all duration-200 active:scale-95"
+    >
+      {/* 顶部激活指示条：渐变 indigo→violet，滑入动画 */}
+      <div
+        className={[
+          'absolute top-0 w-8 h-[2px] rounded-b-full',
+          'bg-gradient-to-r from-indigo-500 to-violet-500',
+          'transition-all duration-200',
+          active ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-50',
+        ].join(' ')}
+      />
+
+      {/* 图标区域：激活 indigo，未激活 slate */}
+      <div
+        className={[
+          'transition-all duration-200',
+          active
+            ? 'text-indigo-500 dark:text-indigo-400'
+            : 'text-slate-400 dark:text-slate-500',
+        ].join(' ')}
+      >
         {React.cloneElement(icon, { strokeWidth: active ? 2.5 : 2 })}
       </div>
-      <span className={`text-[11px] mt-1 font-semibold transition-colors duration-300 ${active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'}`}>
+
+      {/* 标签文字：激活加粗，未激活常规 */}
+      <span
+        className={[
+          'text-[11px] mt-0.5 transition-all duration-200',
+          active
+            ? 'font-bold text-indigo-500 dark:text-indigo-400'
+            : 'font-medium text-slate-400 dark:text-slate-500',
+        ].join(' ')}
+      >
         {label}
       </span>
-      {active && <div className="absolute -bottom-2 w-8 h-1 bg-indigo-600 dark:bg-indigo-400 rounded-t-full transition-colors" />}
     </button>
   );
 }

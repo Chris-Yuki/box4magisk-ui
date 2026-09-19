@@ -1,24 +1,54 @@
 @import "tailwindcss";
 
+/* 自定义深色模式变体：class="dark" 挂在 html 上 */
 @custom-variant dark (&:is(.dark, .dark *));
 
+/* 设计令牌 */
 @theme {
   --font-sans: "Inter", "Roboto", system-ui, sans-serif;
+
+  /* 主色 - NaiveUI / Arco Design 风格 indigo */
+  --color-primary: #6366f1;
+  --color-primary-hover: #4f46e5;
+  --color-primary-light: #eef2ff;
 }
 
 @layer utilities {
+  /* 隐藏滚动条但保留滚动功能 */
   .scrollbar-hide {
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE / Edge */
+    scrollbar-width: none;    /* Firefox */
   }
   .scrollbar-hide::-webkit-scrollbar {
-    display: none; /* Chrome, Safari and Opera */
+    display: none; /* Chrome / Safari / Opera */
   }
+
+  /* iOS 安全区域底部内边距（适配刘海屏）*/
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
   }
+
+  /* 毛玻璃效果 */
+  .glass {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* 渐变主色文字 */
+  .text-gradient {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 点击缩放动画 */
+  .active-scale {
+    @apply active:scale-95 transition-transform duration-150;
+  }
 }
 
+/* 全局布局重置 */
 html, body, #root {
   height: 100%;
   width: 100%;
@@ -27,11 +57,13 @@ html, body, #root {
   overflow-x: hidden;
 }
 
+/* 亮色背景：slate-100 */
 html {
-  background-color: #f8fafc;
+  background-color: #f1f5f9;
   color-scheme: light;
 }
 
+/* 深色背景：slate-950 */
 html.dark {
   background-color: #020617;
   color-scheme: dark;
