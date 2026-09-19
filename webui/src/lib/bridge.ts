@@ -271,3 +271,22 @@ export async function discoverPackages(): Promise<AppInfo[]> {
 export function notify(msg: string) {
   try { toast?.(msg); } catch { /* ignore */ }
 }
+
+// ── 获取正在运行的应用包名 ──────────────────────────────────────────────────────
+/** 通过扫描 /proc 获取当前正在运行的应用进程包名集合 */
+export async function getRunningPackages(): Promise<Set<string>> {
+  if (platform === 'mock') return new Set();
+
+  try {
+    // 使用 ps 命令获取所有进程名称，过滤出看起来像包名的条目（包含至少一个点号）
+    const result = await platformExec(
+      "ps -A -o NAME 2>/dev/null | grep '\\.' | sort -u"
+    );
+    const names = String(result.stdout ?? '').split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && line.includes('.') && !line.startsWith('['));
+    return new Set(names);
+  } catch {
+    return new Set();
+  }
+}

@@ -233,18 +233,44 @@ export async function applySubscriptionConfig(
         ...(finalConfig.log || {}),
       };
 
-      // 确保 DNS 劫持规则位于路由最前列
+      // 确保路由规则包含必要的 sniff 和 DNS 劫持规则
       if (finalConfig.route) {
         finalConfig.route.auto_detect_interface = true;
         const currentRules = Array.isArray(finalConfig.route.rules) ? finalConfig.route.rules : [];
-        const hasDnsHijack = currentRules.some((r: any) => r.action === 'hijack-dns');
-        if (!hasDnsHijack) {
-          finalConfig.route.rules = [
-            { protocol: 'dns', action: 'hijack-dns' },
-            { port: 53, action: 'hijack-dns' },
-            ...currentRules,
-          ];
-        }
+
+        // 必须为所有标准入站添加 sniff 规则，否则 tproxy 流量无法识别域名，
+        // 会直接 fallback 到 final outbound（通常是直连），导致无法访问被墙网站
+        const STANDARD_INBOUND_TAGS = ['mixed-in', 'tproxy-in', 'redirect-in'];
+        const sniffedInbounds = new Set(
+          currentRules
+            .filter((r: any) => r.action === 'sniff')
+            .flatMap((r: any) => (typeof r.inbound === 'string' ? [r.inbound] : Array.isArray(r.inbound) ? r.inbound : []))
+        );
+        const missingSniffRules = STANDARD_INBOUND_TAGS
+          .filter(tag => !sniffedInbounds.has(tag))
+          .map(tag => ({ inbound: tag, action: 'sniff', timeout: '300ms' }));
+
+        // 移除引用已被替换入站（如 tun-in）的 sniff 规则
+        const validRules = currentRules.filter((r: any) => {
+          if (r.action === 'sniff' && typeof r.inbound === 'string') {
+            return STANDARD_INBOUND_TAGS.includes(r.inbound);
+          }
+          return true;
+        });
+
+        // 确保 DNS 劫持规则存在
+        const hasDnsHijack = validRules.some((r: any) => r.action === 'hijack-dns');
+        const dnsHijackRules = hasDnsHijack ? [] : [
+          { protocol: 'dns', action: 'hijack-dns' },
+          { port: 53, action: 'hijack-dns' },
+        ];
+
+        // 最终顺序：sniff 规则 → DNS 劫持 → 其他路由规则
+        finalConfig.route.rules = [
+          ...missingSniffRules,
+          ...dnsHijackRules,
+          ...validRules,
+        ];
       }
 
       // 清理已废弃的 DNS 选项（避免 1.14 报废弃警告）

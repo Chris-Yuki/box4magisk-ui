@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
-import { Search, Check } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Search, Check, RefreshCw } from 'lucide-react';
 import { Switch, Select } from '@/components/ui';
+import { getRunningPackages } from '@/lib/bridge';
 import type { AppInfo, BoxConfig, BoxControllerState } from '@/types/box';
 
 const DEFAULT_ANDROID_ICON =
@@ -22,11 +23,38 @@ const DEFAULT_ANDROID_ICON =
     </svg>
   `);
 
+// 筛选分类：用户应用、系统应用、正在运行、全部
+type FilterType = 'user' | 'system' | 'running' | 'all';
+const FILTER_LABELS: Record<FilterType, string> = {
+  running: '运行中',
+  user: '用户',
+  system: '系统',
+  all: '全部',
+};
+
 type TabAppsProps = Pick<BoxControllerState, 'config' | 'handleToggle' | 'handleChange' | 'appList'>;
 
 export function TabApps({ config, handleToggle, handleChange, appList }: TabAppsProps) {
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'user' | 'system' | 'all'>('user');
+  const [filter, setFilter] = useState<FilterType>('running');
+  // 正在运行的应用包名集合
+  const [runningPkgs, setRunningPkgs] = useState<Set<string>>(new Set());
+  const [loadingRunning, setLoadingRunning] = useState(false);
+
+  // 组件挂载时自动获取一次运行中的应用列表
+  useEffect(() => {
+    refreshRunningApps();
+  }, []);
+
+  /** 刷新运行中应用列表 */
+  const refreshRunningApps = async () => {
+    setLoadingRunning(true);
+    try {
+      const pkgs = await getRunningPackages();
+      setRunningPkgs(pkgs);
+    } catch { /* ignore */ }
+    setLoadingRunning(false);
+  };
 
   const currentListKey = config?.APP_PROXY_MODE === 'whitelist' ? 'PROXY_APPS_LIST' : 'BYPASS_APPS_LIST';
   const rawString = config?.[currentListKey] || '';
@@ -37,15 +65,18 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
 
   const filteredApps = useMemo(() => {
     return (appList || []).filter((app: AppInfo) => {
+      // 按分类筛选
       if (filter === 'user' && app.isSystem) return false;
       if (filter === 'system' && !app.isSystem) return false;
+      if (filter === 'running' && !runningPkgs.has(app.packageName)) return false;
+      // 搜索过滤
       if (search) {
         const lowerSearch = search.toLowerCase();
         return app.appLabel.toLowerCase().includes(lowerSearch) || app.packageName.toLowerCase().includes(lowerSearch);
       }
       return true;
     });
-  }, [appList, search, filter]);
+  }, [appList, search, filter, runningPkgs]);
 
   const toggleApp = (pkg: string) => {
     if (config?.APP_PROXY_ENABLE === 0) return;
@@ -91,15 +122,29 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex space-x-2 overflow-x-auto scrollbar-hide">
-              {(['user', 'system', 'all'] as const).map(t => (
+            <div className="flex space-x-2 overflow-x-auto scrollbar-hide items-center">
+              {/* 分类筛选标签 */}
+              {(['running', 'user', 'system', 'all'] as const).map(t => (
                 <button
                   key={t} onClick={() => setFilter(t)} disabled={config?.APP_PROXY_ENABLE === 0}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${filter === t ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}
                 >
-                  {t === 'user' ? '用户' : t === 'system' ? '系统' : '全部'}
+                  {FILTER_LABELS[t]}
+                  {/* 运行中分类显示数量 */}
+                  {t === 'running' && runningPkgs.size > 0 && (
+                    <span className="ml-1 text-[10px] opacity-70">({runningPkgs.size})</span>
+                  )}
                 </button>
               ))}
+              {/* 刷新运行中应用按钮 */}
+              <button
+                onClick={refreshRunningApps}
+                disabled={loadingRunning || config?.APP_PROXY_ENABLE === 0}
+                className="p-1.5 rounded-full text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors disabled:opacity-40"
+                title="刷新运行中应用"
+              >
+                <RefreshCw size={14} className={loadingRunning ? 'animate-spin' : ''} />
+              </button>
             </div>
             <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-md shrink-0 transition-colors">
               已选 {checkedSet.size}
@@ -109,10 +154,13 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
 
         <div className="flex-1 overflow-y-auto px-2 pb-32">
           {filteredApps.length === 0 ? (
-            <div className="text-center text-slate-400 dark:text-slate-500 mt-10 text-sm">未找到应用或列表为空</div>
+            <div className="text-center text-slate-400 dark:text-slate-500 mt-10 text-sm">
+              {filter === 'running' && runningPkgs.size === 0 ? '正在获取运行中应用...' : '未找到应用或列表为空'}
+            </div>
           ) : (
             filteredApps.map((app: AppInfo) => {
               const isChecked = checkedSet.has(app.packageName);
+              const isRunning = runningPkgs.has(app.packageName);
               return (
                 <div
                   key={app.packageName}
@@ -134,7 +182,13 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
                     />
                   </div>
                   <div className="ml-3 flex-1 min-w-0">
-                    <div className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate transition-colors">{app.appLabel}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate transition-colors">{app.appLabel}</span>
+                      {/* 运行状态指示点 */}
+                      {isRunning && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" title="运行中" />
+                      )}
+                    </div>
                     <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5 transition-colors">{app.packageName}</div>
                   </div>
                   <div className="ml-3 shrink-0">
