@@ -102,3 +102,31 @@ export interface BoxControllerState {
   handleSaveAndApply: () => Promise<void>;
   handleToggleAutoStart: (value: boolean) => Promise<void>;
 }
+
+// ── 订阅信息 ──────────────────────────────────────────────────────────────────
+
+/** 单条订阅的元数据（与后端 box.webui subscription-list 返回结构一致） */
+export interface SubscriptionInfo {
+  name: string;
+  url: string;
+  path: string;
+  /** ISO 时间字符串，最后更新时间 */
+  last_updated: string;
+  /** 文件大小（字节） */
+  size: number;
+}
+
+// ── 流量统计 ──────────────────────────────────────────────────────────────────
+
+/** 累计流量和实时速率统计 */
+export interface TrafficStats {
+  /** 当前上行速率（字节/秒） */
+  uploadSpeed: number;
+  /** 当前下行速率（字节/秒） */
+  downloadSpeed: number;
+  /** 本次会话累计上传（字节） */
+  totalUpload: number;
+  /** 本次会话累计下载（字节） */
+  totalDownload: number;
+}
+

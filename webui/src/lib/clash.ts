@@ -228,4 +228,141 @@ export class ClashClient {
     );
     return data.delay;
   }
+
+  // ── 活跃连接管理 ────────────────────────────────────────────────────────────
+
+  /** 获取当前所有活跃连接的快照 */
+  async getConnections(options?: ClashRequestOptions): Promise<ClashConnections> {
+    return this.request<ClashConnections>('/connections', options);
+  }
+
+  /** 关闭指定 ID 的单条连接 */
+  async closeConnection(id: string, options?: ClashRequestOptions): Promise<void> {
+    await this.request(`/connections/${encodeURIComponent(id)}`, {
+      ...options,
+      method: 'DELETE',
+    });
+  }
+
+  /** 关闭所有活跃连接 */
+  async closeAllConnections(options?: ClashRequestOptions): Promise<void> {
+    await this.request('/connections', { ...options, method: 'DELETE' });
+  }
+
+  // ── WebSocket 实时数据流 ────────────────────────────────────────────────────
+
+  /**
+   * 订阅实时流量数据（WebSocket /traffic）
+   * 返回取消订阅函数，调用后断开连接
+   */
+  subscribeTraffic(
+    callback: (data: TrafficData) => void,
+    onError?: (err: Event) => void,
+  ): () => void {
+    const wsBase = this.baseUrl.replace(/^http/, 'ws');
+    const url = this.secret
+      ? `${wsBase}/traffic?token=${encodeURIComponent(this.secret)}`
+      : `${wsBase}/traffic`;
+
+    const ws = new WebSocket(url);
+    let closed = false;
+
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data as string) as TrafficData;
+        if (!closed) callback(data);
+      } catch { /* ignore malformed frames */ }
+    };
+
+    ws.onerror = (ev) => {
+      if (!closed) onError?.(ev);
+    };
+
+    // 返回取消订阅函数
+    return () => {
+      closed = true;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+  }
+
+  /**
+   * 订阅实时连接数据（WebSocket /connections）
+   * 返回取消订阅函数
+   */
+  subscribeConnections(
+    callback: (data: ClashConnections) => void,
+    onError?: (err: Event) => void,
+  ): () => void {
+    const wsBase = this.baseUrl.replace(/^http/, 'ws');
+    const url = this.secret
+      ? `${wsBase}/connections?token=${encodeURIComponent(this.secret)}`
+      : `${wsBase}/connections`;
+
+    const ws = new WebSocket(url);
+    let closed = false;
+
+    ws.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data as string) as ClashConnections;
+        if (!closed) callback(data);
+      } catch { /* ignore malformed frames */ }
+    };
+
+    ws.onerror = (ev) => {
+      if (!closed) onError?.(ev);
+    };
+
+    return () => {
+      closed = true;
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+  }
 }
+
+// ── 新增数据类型 ───────────────────────────────────────────────────────────────
+
+/** Clash API /traffic 接口返回的流量数据 */
+export interface TrafficData {
+  /** 当前上行速率（字节/秒） */
+  up: number;
+  /** 当前下行速率（字节/秒） */
+  down: number;
+}
+
+/** 单条活跃连接信息 */
+export interface ConnectionItem {
+  id: string;
+  metadata: {
+    network: string;        // tcp / udp
+    type: string;           // 连接类型
+    host: string;           // 目标主机名
+    sourceIP: string;
+    destinationIP: string;
+    destinationPort: string;
+    process?: string;       // 触发连接的进程名（部分核心支持）
+  };
+  /** 已上传字节数 */
+  upload: number;
+  /** 已下载字节数 */
+  download: number;
+  /** 连接建立时间（ISO 字符串） */
+  start: string;
+  /** 匹配的规则（如 DOMAIN-SUFFIX,google.com,Proxy） */
+  rule: string;
+  /** 匹配规则的详情 */
+  rulePayload: string;
+  /** 使用的代理节点名称 */
+  chains: string[];
+}
+
+/** Clash API /connections 返回结构 */
+export interface ClashConnections {
+  downloadTotal: number;
+  uploadTotal: number;
+  connections: ConnectionItem[] | null;
+}
+
