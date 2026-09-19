@@ -23,9 +23,10 @@ const DEFAULT_ANDROID_ICON =
     </svg>
   `);
 
-// 筛选分类：用户应用、系统应用、正在运行、全部
-type FilterType = 'user' | 'system' | 'running' | 'all';
+// 筛选分类：已选择、正在运行、用户应用、系统应用、全部
+type FilterType = 'selected' | 'running' | 'user' | 'system' | 'all';
 const FILTER_LABELS: Record<FilterType, string> = {
+  selected: '已选择',
   running: '运行中',
   user: '用户',
   system: '系统',
@@ -66,6 +67,7 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
   const filteredApps = useMemo(() => {
     return (appList || []).filter((app: AppInfo) => {
       // 按分类筛选
+      if (filter === 'selected' && !checkedSet.has(app.packageName)) return false;
       if (filter === 'user' && app.isSystem) return false;
       if (filter === 'system' && !app.isSystem) return false;
       if (filter === 'running' && !runningPkgs.has(app.packageName)) return false;
@@ -76,7 +78,7 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
       }
       return true;
     });
-  }, [appList, search, filter, runningPkgs]);
+  }, [appList, search, filter, runningPkgs, checkedSet]);
 
   const toggleApp = (pkg: string) => {
     if (config?.APP_PROXY_ENABLE === 0) return;
@@ -124,7 +126,7 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
           <div className="flex items-center justify-between">
             <div className="flex space-x-2 overflow-x-auto scrollbar-hide items-center">
               {/* 分类筛选标签 */}
-              {(['running', 'user', 'system', 'all'] as const).map(t => (
+              {(['selected', 'running', 'user', 'system', 'all'] as const).map(t => (
                 <button
                   key={t} onClick={() => setFilter(t)} disabled={config?.APP_PROXY_ENABLE === 0}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${filter === t ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'}`}
