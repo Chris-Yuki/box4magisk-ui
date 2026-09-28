@@ -133,7 +133,7 @@ start_bin() {
         sing-box)
             if ${bin_path} check -D ${box_path}/${bin_name} > ${run_path}/check.log 2>&1; then
                 log Info "starting ${bin_name} service."
-                nohup busybox setuidgid ${box_user_group} ${bin_path} run -D ${box_path}/${bin_name} > /dev/null 2> ${run_path}/error_${bin_name}.log &
+                nohup busybox setuidgid ${box_user_group} ${bin_path} run -D ${box_path}/${bin_name} > ${run_path}/${bin_name}.log 2>&1 &
                 echo -n $! > ${pid_file}
                 return 0
             else
@@ -144,7 +144,7 @@ start_bin() {
         clash | mihomo)
             if ${bin_path} -t -d ${box_path}/${bin_name} > ${run_path}/check.log 2>&1; then
                 log Info "starting ${bin_name} service."
-                nohup busybox setuidgid ${box_user_group} ${bin_path} -d ${box_path}/${bin_name} > ${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log 2> ${run_path}/error_${bin_name}.log &
+                nohup busybox setuidgid ${box_user_group} ${bin_path} -d ${box_path}/${bin_name} > ${run_path}/${bin_name}.log 2>&1 &
                 echo -n $! > ${pid_file}
                 return 0
             else
@@ -156,7 +156,7 @@ start_bin() {
             export XRAY_LOCATION_ASSET="${box_path}/${bin_name}"
             if ${bin_path} -test -confdir ${box_path}/${bin_name} > ${run_path}/check.log 2>&1; then
                 log Info "starting ${bin_name} service."
-                nohup busybox setuidgid ${box_user_group} ${bin_path} -confdir ${box_path}/${bin_name} > /dev/null 2> ${run_path}/error_${bin_name}.log &
+                nohup busybox setuidgid ${box_user_group} ${bin_path} -confdir ${box_path}/${bin_name} > ${run_path}/${bin_name}.log 2>&1 &
                 echo -n $! > ${pid_file}
                 return 0
             else
@@ -168,7 +168,7 @@ start_bin() {
             export V2RAY_LOCATION_ASSET="${box_path}/${bin_name}"
             if ${bin_path} test -d ${box_path}/${bin_name} > ${run_path}/check.log 2>&1; then
                 log Info "starting ${bin_name} service."
-                nohup busybox setuidgid ${box_user_group} ${bin_path} run -d ${box_path}/${bin_name} > /dev/null 2> ${run_path}/error_${bin_name}.log &
+                nohup busybox setuidgid ${box_user_group} ${bin_path} run -d ${box_path}/${bin_name} > ${run_path}/${bin_name}.log 2>&1 &
                 echo -n $! > ${pid_file}
                 return 0
             else
@@ -178,7 +178,7 @@ start_bin() {
             ;;
         hysteria)
             log Info "starting ${bin_name} service."
-            nohup busybox setuidgid ${box_user_group} ${bin_path} -c ${box_path}/${bin_name}/config.yaml > ${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log 2> ${run_path}/error_${bin_name}.log &
+            nohup busybox setuidgid ${box_user_group} ${bin_path} -c ${box_path}/${bin_name}/config.yaml > ${run_path}/${bin_name}.log 2>&1 &
             echo -n $! > ${pid_file}
             return 0
             ;;

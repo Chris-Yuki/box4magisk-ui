@@ -7,6 +7,17 @@
 MODDIR="/data/adb/modules/box4"
 [ -n "$(magisk -v 2>/dev/null | grep lite)" ] && MODDIR="/data/adb/lite_modules/box4"
 
+# KSU/APatch 使用原生 WebUI，action 按钮无需执行
+if [ -d "/data/adb/ksu" ] || [ -d "/data/adb/ap" ]; then
+  echo "==> KSU/APatch 环境请使用内置 WebUI 管理面板"
+  exit 0
+fi
+
+# 若存在未重启的 Magisk 覆盖更新目录，热同步最新文件至活跃目录，免重启即可生效
+if [ -d "/data/adb/modules_update/box4" ]; then
+  cp -rf /data/adb/modules_update/box4/* "$MODDIR/" 2>/dev/null
+fi
+
 WEBROOT="${MODDIR}/webroot"
 WEBUI_APP="io.github.a13e300.ksuwebui"
 MMRL_APP="com.dergoogler.mmrl"
