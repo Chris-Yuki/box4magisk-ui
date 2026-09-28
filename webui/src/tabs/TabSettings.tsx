@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Rss, FileCode, ChevronRight } from 'lucide-react';
 import { SettingsPage } from '@/features/settings/components/SettingsPage';
+import { RulesetDetourCard } from '@/features/settings/components/RulesetDetourCard';
 import { SubscriptionPage } from '@/features/subscriptions/components/SubscriptionPage';
 import { ConfigEditorPage } from '@/features/config-editor/components/ConfigEditorPage';
 import type { BoxControllerState } from '@/types/box';
@@ -89,6 +90,13 @@ export function TabSettings(props: TabSettingsProps) {
           </p>
         </button>
       </div>
+
+      {/* sing-box 规则集更新出站配置卡片 */}
+      {binName === 'sing-box' && (
+        <div className="px-4">
+          <RulesetDetourCard status={props.status} />
+        </div>
+      )}
 
       {/* 原有详细网络与系统设置 */}
       <SettingsPage {...props} />

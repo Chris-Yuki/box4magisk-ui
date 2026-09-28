@@ -96,15 +96,21 @@
       "type": "block"
     }
   ],
+  "http_clients": [
+    {
+      "tag": "ruleset-client",
+      "detour": "Proxy"
+    }
+  ],
   "route": {
     "default_domain_resolver": "dns-direct",
+    "default_http_client": "ruleset-client",
     "rule_set": [
       {
         "tag": "geosite-cn",
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geosite/cn.srs",
-        "download_detour": "Proxy",
         "update_interval": "7d"
       },
       {
@@ -112,7 +118,6 @@
         "type": "remote",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo/geoip/cn.srs",
-        "download_detour": "Proxy",
         "update_interval": "7d"
       }
     ],
