@@ -1,7 +1,7 @@
 id=box4
 name=box4magisk
-version=v5.2.0
-versionCode=2026092001
+version=v5.2.3
+versionCode=2026092603
 author=CHIZI-0618, Chris-Yuki
 description=Modern WebUI panel, sing-box/clash/mihomo transparent proxy for Android (Magisk/KernelSU/APatch).
 updateJson=https://raw.githubusercontent.com/Chris-Yuki/box4magisk-ui/main/box4.json
