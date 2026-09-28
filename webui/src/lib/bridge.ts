@@ -106,38 +106,61 @@ function shellQuote(value: string) {
   return `'${value.split("'").join(`'\\''`)}'`;
 }
 
-function extractJson(stdout: string, stderr: string) {
-  const source = [stdout, stderr].filter(Boolean).join("\n").trim();
-  if (!source) throw new Error("box.webui returned no output");
+function cleanControlChars(str: string): string {
+  // 移除可能破坏 JSON.parse 的 ASCII 控制字符（保留 \t \r \n）
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
 
-  // 1. 优先尝试直接解析完整输出（支持含换行的多行 JSON）
+function tryParseCandidate(str: string): string | null {
   try {
-    JSON.parse(source);
-    return source;
+    JSON.parse(str);
+    return str;
   } catch {}
 
-  // 2. 查找首尾大括号截取（过滤输出前后的杂质日志或 shell 打印）
-  const firstBrace = source.indexOf("{");
-  const lastBrace = source.lastIndexOf("}");
+  const firstBrace = str.indexOf("{");
+  const lastBrace = str.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = source.slice(firstBrace, lastBrace + 1);
+    const candidate = str.slice(firstBrace, lastBrace + 1);
     try {
       JSON.parse(candidate);
       return candidate;
     } catch {}
   }
+  return null;
+}
 
-  // 3. 单行倒序扫描兜底
-  const lines = source.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    const start = line.indexOf("{");
-    const end = line.lastIndexOf("}");
-    if (start === -1 || end <= start) continue;
-    const candidate = line.slice(start, end + 1);
-    try { JSON.parse(candidate); return candidate; } catch { }
+function extractJson(stdout: string, stderr: string) {
+  const cleanStdout = cleanControlChars(String(stdout ?? "")).trim();
+  const cleanStderr = cleanControlChars(String(stderr ?? "")).trim();
+
+  // 1. 优先仅使用 stdout 解析（避免 stderr 警告污染纯净的 JSON 返回）
+  if (cleanStdout) {
+    const parsedStdout = tryParseCandidate(cleanStdout);
+    if (parsedStdout) return parsedStdout;
   }
-  throw new Error(source || "box.webui returned no JSON payload");
+
+  // 2. 若 stdout 无法直接解析，尝试将 stdout 与 stderr 合并解析
+  const combined = [cleanStdout, cleanStderr].filter(Boolean).join("\n").trim();
+  if (combined) {
+    const parsedCombined = tryParseCandidate(combined);
+    if (parsedCombined) return parsedCombined;
+
+    // 3. 逐行倒序扫描兜底（以防混入日志或终端文本）
+    const lines = combined.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      const start = line.indexOf("{");
+      const end = line.lastIndexOf("}");
+      if (start === -1 || end <= start) continue;
+      const candidate = line.slice(start, end + 1);
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {}
+    }
+  }
+
+  throw new Error(cleanStdout || cleanStderr || "box.webui returned no JSON payload");
 }
 
 // ── 统一 API 调用 ─────────────────────────────────────────────────────────────
@@ -180,7 +203,8 @@ export const boxBridge = {
   manualMode: (action: 'status' | 'enable' | 'disable') => runApi(['manual-mode', action]),
 
   // 日志
-  checkLog: (lines: number = 80) => runApi(['check-log', String(lines)]),
+  checkLog: (lines: number = 80, target: 'auto' | 'core' | 'service' = 'auto') =>
+    runApi(['check-log', String(lines), target]),
   /** 清空日志文件（磁盘级别） */
   clearLog: () => runApi(['clear-log']),
 
@@ -228,6 +252,35 @@ export async function openExternalUrl(url: string) {
 }
 
 // ── 应用包列表 ────────────────────────────────────────────────────────────────
+/** 批量解析应用标签：通过 dumpsys package 全量输出提取 packageName → applicationLabel 映射 */
+async function resolveAppLabels(packageNames: string[]): Promise<Map<string, string>> {
+  const labelMap = new Map<string, string>();
+  if (packageNames.length === 0) return labelMap;
+
+  try {
+    // 从 dumpsys package 全量输出中提取 Package 块名和 applicationLabel
+    const result = await platformExec(
+      "dumpsys package 2>/dev/null | grep -E '(Package \\[|applicationLabel=)'"
+    );
+    const lines = String(result.stdout ?? '').split(/\r?\n/);
+    let currentPkg = '';
+    for (const line of lines) {
+      const pkgMatch = line.match(/Package \[([^\]]+)\]/);
+      if (pkgMatch) {
+        currentPkg = pkgMatch[1];
+        continue;
+      }
+      const labelMatch = line.match(/applicationLabel=(.+)/);
+      if (labelMatch && currentPkg) {
+        const label = labelMatch[1].trim();
+        if (label) labelMap.set(currentPkg, label);
+      }
+    }
+  } catch { /* 查询失败返回空 map，使用包名兜底 */ }
+
+  return labelMap;
+}
+
 export async function discoverPackages(): Promise<AppInfo[]> {
   // mock 模式返回空列表
   if (platform === 'mock') return [];
@@ -252,9 +305,9 @@ export async function discoverPackages(): Promise<AppInfo[]> {
       }
     }
 
-    // 回落：通过 pm list packages 命令获取
+    // 回退：通过 pm list packages 命令获取包名
     const result = await platformExec("pm list packages -3 | sed 's/^package:/user:/' ; pm list packages -s | sed 's/^package:/system:/'");
-    return String(result.stdout ?? '').split(/\r?\n/)
+    const entries = String(result.stdout ?? '').split(/\r?\n/)
       .map(line => line.trim())
       .filter(line => /^(user|system):/.test(line))
       .map(line => ({
@@ -262,6 +315,13 @@ export async function discoverPackages(): Promise<AppInfo[]> {
         appLabel: line.replace(/^(user|system):/, ''),
         isSystem: line.startsWith('system:'),
       }));
+
+    // 尝试批量获取可读应用标签（替代原始包名）
+    const labelMap = await resolveAppLabels(entries.map(e => e.packageName));
+    return entries.map(e => ({
+      ...e,
+      appLabel: labelMap.get(e.packageName) || e.packageName,
+    }));
   } catch {
     return [];
   }

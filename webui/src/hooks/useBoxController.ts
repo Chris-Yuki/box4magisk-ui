@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { boxBridge, discoverPackages, notify } from '@/lib/bridge';
 import type { AppInfo, BoxConfig, BoxControllerState, BoxStatus } from '@/types/box';
 
@@ -50,6 +50,9 @@ export function useBoxController(): BoxControllerState {
   const [config, setConfig] = useState<BoxConfig>({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [appList, setAppList] = useState<AppInfo[]>([]);
+
+  // 防连点/防重复提交锁
+  const isSavingRef = useRef(false);
 
   const hasChanges = useMemo(() => JSON.stringify(originalConfig) !== JSON.stringify(config), [originalConfig, config]);
 
@@ -148,6 +151,8 @@ export function useBoxController(): BoxControllerState {
   };
 
   const handleSaveAndApply = async () => {
+    if (isSavingRef.current || actionLoading) return;
+    isSavingRef.current = true;
     setActionLoading('save');
     try {
       let isAppsChanged = false;
@@ -179,11 +184,20 @@ export function useBoxController(): BoxControllerState {
 
       if (isAppsChanged) {
         const modeStr = newConfig.APP_PROXY_ENABLE === 1 ? (newConfig.APP_PROXY_MODE || 'blacklist') : 'disable';
-        const listValue = newConfig.APP_PROXY_MODE === 'whitelist' ? (newConfig.PROXY_APPS_LIST || '') : (newConfig.BYPASS_APPS_LIST || '');
+        const rawList = newConfig.APP_PROXY_MODE === 'whitelist' ? (newConfig.PROXY_APPS_LIST || '') : (newConfig.BYPASS_APPS_LIST || '');
+        // 彻底清洗包名列表为标准单行空格分隔，杜绝换行符与多余空项
+        const listValue = rawList.split(/\s+/).filter(Boolean).join(' ');
         await boxBridge.setApps(modeStr, listValue);
       }
 
       await boxBridge.service('restart');
+
+      // 若分流名单改变且透明代理正在运行，联动重启透明代理使 iptables 规则立即生效
+      if (isAppsChanged && status.transparent_proxy_running) {
+        try {
+          await boxBridge.tproxy('restart');
+        } catch { /* 忽略 tproxy 单独重启异常 */ }
+      }
 
       const nextStatus = await waitForStatus(true);
       setStatus(nextStatus);
@@ -191,8 +205,10 @@ export function useBoxController(): BoxControllerState {
       notify('已保存并生效');
     } catch (e: unknown) {
       notify(`保存失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      isSavingRef.current = false;
+      setActionLoading(null);
     }
-    setActionLoading(null);
   };
 
   const handleToggleAutoStart = async (value: boolean) => {

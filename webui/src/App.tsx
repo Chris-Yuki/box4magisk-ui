@@ -167,7 +167,9 @@ export default function App() {
           <button
             onClick={handleSaveAndApply}
             disabled={actionLoading === 'save'}
-            className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-3 rounded-full shadow-[0_4px_16px_rgba(99,102,241,0.4)] flex items-center space-x-2 font-bold active:scale-95 transition-all"
+            className={`bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-3 rounded-full shadow-[0_4px_16px_rgba(99,102,241,0.4)] flex items-center space-x-2 font-bold active:scale-95 transition-all ${
+              actionLoading === 'save' ? 'opacity-70 pointer-events-none cursor-not-allowed' : ''
+            }`}
           >
             {actionLoading === 'save' ? (
               <RefreshCw size={18} className="animate-spin" />

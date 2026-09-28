@@ -14,6 +14,8 @@ export interface LogLine {
 interface UseLogStreamOptions {
   /** 拉取最近几行日志 */
   lines: number;
+  /** 日志源：auto=智能匹配，core=核心进程，service=模块服务 */
+  target?: 'auto' | 'core' | 'service';
   /** false 时暂停轮询（如服务未运行） */
   enabled: boolean;
 }
@@ -28,63 +30,84 @@ function parseLine(raw: string): LogLine {
     return { raw, level: 'unknown', timestamp: null, content: '' };
   }
 
-  // 提取时间戳
   let rest = trimmed;
   let timestamp: string | null = null;
+  let level: LogLine['level'] = 'unknown';
+
+  // 1. 标准时间戳 yyyy-MM-dd HH:mm:ss 或 [HH:mm:ss]
   const tsMatch = TS_RE.exec(rest);
   if (tsMatch) {
     timestamp = tsMatch[1];
-    rest = rest.slice(tsMatch[0].length);
+    rest = rest.slice(tsMatch[0].length).trim();
   }
 
-  // 检测日志级别关键字（大小写不敏感）
-  const upper = rest.toUpperCase();
-  let level: LogLine['level'] = 'unknown';
-  if (/\[?ERROR\]?/.test(upper)) level = 'error';
-  else if (/\[?WARN(?:ING)?\]?/.test(upper)) level = 'warn';
-  else if (/\[?INFO\]?/.test(upper)) level = 'info';
-  else if (/\[?DEBUG\]?/.test(upper)) level = 'debug';
+  // 2. 检测 logrus/sing-box 格式，如 WARN[0000] 或 INFO[0012]
+  const logrusMatch = /^(FATAL|ERROR|WARN(?:ING)?|INFO|DEBUG)\[(\d+)\]\s*/i.exec(rest);
+  if (logrusMatch) {
+    const lvl = logrusMatch[1].toUpperCase();
+    if (lvl.startsWith('ERR') || lvl === 'FATAL') level = 'error';
+    else if (lvl.startsWith('WARN')) level = 'warn';
+    else if (lvl.startsWith('INFO')) level = 'info';
+    else if (lvl.startsWith('DEBUG')) level = 'debug';
+    timestamp = timestamp || `+${logrusMatch[2]}s`;
+    rest = rest.slice(logrusMatch[0].length).trim();
+  } else {
+    // 通用日志级别关键字检测
+    const upper = rest.toUpperCase();
+    if (/^\[?ERROR\]?/.test(upper)) level = 'error';
+    else if (/^\[?WARN(?:ING)?\]?/.test(upper)) level = 'warn';
+    else if (/^\[?INFO\]?/.test(upper)) level = 'info';
+    else if (/^\[?DEBUG\]?/.test(upper)) level = 'debug';
 
-  // 去除级别前缀，如 [Info]、[ERROR] 等
-  const content = rest.replace(/^\[?(ERROR|WARN(?:ING)?|INFO|DEBUG)\]?\s*/i, '').trim();
+    rest = rest.replace(/^\[?(ERROR|WARN(?:ING)?|INFO|DEBUG)\]?:?\s*/i, '').trim();
+  }
 
-  return { raw, level, timestamp, content };
+  return { raw, level, timestamp, content: rest || raw };
 }
 
 /** 日志流 Hook：每 3 秒轮询一次，返回解析好的日志行列表 */
-export function useLogStream({ lines, enabled }: UseLogStreamOptions) {
+export function useLogStream({ lines, target = 'auto', enabled }: UseLogStreamOptions) {
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [logPath, setLogPath] = useState<string>('');
+  const [logExists, setLogExists] = useState<boolean>(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await boxBridge.checkLog(lines);
+      const result = await boxBridge.checkLog(lines, target);
       const raw: string = typeof result === 'string'
         ? result
         : (result as any)?.content ?? '';
+      const path: string = (result as any)?.path ?? '';
+      const exists: boolean = (result as any)?.exists ?? true;
+
+      setLogPath(path);
+      setLogExists(exists);
+
       const parsed = raw
         .split(/\r?\n/)
         .filter((l) => l.trim().length > 0)
         .map(parseLine);
       setLogLines(parsed);
-    } catch {
-      // 获取失败时保留上次内容，不重置
+      setError(null);
+    } catch (err: any) {
+      console.error('[useLogStream] fetchLogs error:', err);
+      setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
-  }, [lines]);
+  }, [lines, target]);
 
-  // 定时轮询
+  // 挂载及参数变化时获取日志；服务运行时开启定时轮询
   useEffect(() => {
-    if (!enabled) {
-      setLogLines([]);
-      return;
-    }
-
     void fetchLogs();
-    timerRef.current = setInterval(() => void fetchLogs(), 3000);
+
+    if (enabled) {
+      timerRef.current = setInterval(() => void fetchLogs(), 3000);
+    }
 
     return () => {
       if (timerRef.current !== null) {
@@ -96,9 +119,22 @@ export function useLogStream({ lines, enabled }: UseLogStreamOptions) {
 
   /** 清空磁盘日志并刷新 */
   const clearLog = useCallback(async () => {
-    await boxBridge.clearLog();
-    setLogLines([]);
+    try {
+      await boxBridge.clearLog();
+      setLogLines([]);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || String(err));
+    }
   }, []);
 
-  return { logLines, loading, refresh: fetchLogs, clearLog };
+  return {
+    logLines,
+    loading,
+    error,
+    logPath,
+    logExists,
+    refresh: fetchLogs,
+    clearLog,
+  };
 }

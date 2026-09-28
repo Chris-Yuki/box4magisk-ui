@@ -14,14 +14,20 @@ MODULE_ROOT="/data/adb/modules/box4"
 [ -n "$(magisk -v 2>/dev/null | grep lite)" ] && MODULE_ROOT="/data/adb/lite_modules/box4"
 
 json_escape() {
-    printf '%s' "$1" | awk '{
-        gsub(/\\/, "\\\\")
-        gsub(/"/, "\\\"")
-        gsub(/\r/, "")
-        gsub(/\t/, "\\t")
-        if (NR > 1) printf "\\n"
-        printf "%s", $0
-    }'
+    local str="$1"
+    if command_exists awk; then
+        printf '%s' "$str" | awk '{
+            gsub(/\033\[[0-9;]*[a-zA-Z]/, "")
+            gsub(/\\/, "\\\\")
+            gsub(/"/, "\\\"")
+            gsub(/\r/, "")
+            gsub(/\t/, "\\t")
+            if (NR > 1) printf "\\n"
+            printf "%s", $0
+        }' 2>/dev/null
+    else
+        printf '%s' "$str" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\r//g' | tr '\n' ' '
+    fi
 }
 
 json_bool() {
@@ -430,16 +436,31 @@ replace_config_line() {
     local key="$2"
     local replacement="$3"
     local tmp_file="${target_file}.tmp.$$"
+    local found=0
+    local line
 
-    awk -v key="$key" -v replacement="$replacement" '
-        index($0, key "=") == 1 {
-            print replacement
-            next
-        }
-        { print }
-    ' "$target_file" > "$tmp_file" || emit_error "failed to update config" "config-write"
+    if [ ! -f "$target_file" ]; then
+        touch "$target_file" || emit_error "failed to create config file: $target_file" "config-write"
+    fi
 
-    mv "$tmp_file" "$target_file" || emit_error "failed to replace config" "config-write"
+    : > "$tmp_file" || emit_error "failed to create temp file: $tmp_file" "config-write"
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "$key="*|" $key="*|"	$key="*)
+                printf '%s\n' "$replacement" >> "$tmp_file"
+                found=1
+                ;;
+            *)
+                printf '%s\n' "$line" >> "$tmp_file"
+                ;;
+        esac
+    done < "$target_file"
+
+    if [ "$found" -eq 0 ]; then
+        printf '%s\n' "$replacement" >> "$tmp_file"
+    fi
+
+    mv -f "$tmp_file" "$target_file" || emit_error "failed to replace config: $target_file" "config-write"
 }
 
 config_set() {
@@ -519,7 +540,7 @@ cmd_status() {
 
     if service_running; then
         running=true
-        pid="$(busybox pidof "$bin_name" 2>/dev/null | awk '{print $1}')"
+        pid="$(pidof "$bin_name" 2>/dev/null | cut -d' ' -f1 || busybox pidof "$bin_name" 2>/dev/null | cut -d' ' -f1)"
     fi
 
     if manual_mode_enabled; then
@@ -743,7 +764,8 @@ cmd_manual_mode() {
 
 cmd_check_log() {
     local lines="${1:-80}"
-    local check_log
+    local target="${2:-auto}"
+    source_box_config
 
     case "$lines" in
         ''|*[!0-9]*)
@@ -751,14 +773,45 @@ cmd_check_log() {
             ;;
     esac
 
-    check_log="$(check_log_file_path)"
+    local log_file=""
+    local log_content=""
 
-    if [ ! -f "$check_log" ]; then
-        emit_ok "check-log" "{\"path\":\"$(json_escape "$check_log")\",\"exists\":false,\"lines\":$lines,\"content\":\"\"}"
-        return 0
+    case "$target" in
+        core)
+            if [ -f "${run_path}/${bin_name}.log" ]; then
+                log_file="${run_path}/${bin_name}.log"
+            elif [ -f "${run_path}/error_${bin_name}.log" ]; then
+                log_file="${run_path}/error_${bin_name}.log"
+            fi
+            ;;
+        service|system)
+            if [ -f "${run_path}/run.log" ]; then
+                log_file="${run_path}/run.log"
+            elif [ -f "${run_path}/check.log" ]; then
+                log_file="${run_path}/check.log"
+            fi
+            ;;
+        *)
+            # auto: 优先核心日志，若核心日志无内容则回退系统日志
+            if [ -f "${run_path}/${bin_name}.log" ] && [ -s "${run_path}/${bin_name}.log" ]; then
+                log_file="${run_path}/${bin_name}.log"
+            elif [ -f "${run_path}/run.log" ] && [ -s "${run_path}/run.log" ]; then
+                log_file="${run_path}/run.log"
+            elif [ -f "${run_path}/error_${bin_name}.log" ] && [ -s "${run_path}/error_${bin_name}.log" ]; then
+                log_file="${run_path}/error_${bin_name}.log"
+            elif [ -f "${run_path}/check.log" ]; then
+                log_file="${run_path}/check.log"
+            elif [ -f "${run_path}/${bin_name}.log" ]; then
+                log_file="${run_path}/${bin_name}.log"
+            fi
+            ;;
+    esac
+
+    if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+        log_content="$(tail -n "$lines" "$log_file" 2>/dev/null)"
     fi
 
-    emit_ok "check-log" "{\"path\":\"$(json_escape "$check_log")\",\"exists\":true,\"lines\":$lines,\"content\":\"$(json_escape "$(tail -n "$lines" "$check_log" 2>/dev/null)")\"}"
+    emit_ok "check-log" "{\"path\":\"$(json_escape "$log_file")\",\"exists\":$( [ -n "$log_file" ] && [ -f "$log_file" ] && printf true || printf false ),\"lines\":$lines,\"bin_name\":\"$(json_escape "$bin_name")\",\"content\":\"$(json_escape "$log_content")\"}"
 }
 
 cmd_apps() {
@@ -872,16 +925,11 @@ cmd_download_cores() {
 
 # 清空运行日志（磁盘级别真实清空，不只是前端过滤）
 cmd_clear_log() {
-    local check_log
-    check_log="$(check_log_file_path)"
-
-    if [ ! -f "$check_log" ]; then
-        emit_ok "clear-log" '{"cleared":false,"reason":"log file does not exist"}'
-        return 0
-    fi
-
-    # 将文件截断为 0 字节
-    : > "$check_log" || emit_error "failed to clear log file" "clear-log"
+    source_box_config
+    local f
+    for f in "${run_path}/${bin_name}.log" "${run_path}/run.log" "${run_path}/check.log" "${run_path}/error_${bin_name}.log"; do
+        [ -f "$f" ] && : > "$f"
+    done
     emit_ok "clear-log" '{"cleared":true}'
 }
 

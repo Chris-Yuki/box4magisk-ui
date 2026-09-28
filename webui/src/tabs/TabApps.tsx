@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, Check, RefreshCw } from 'lucide-react';
 import { Switch, Select } from '@/components/ui';
 import { getRunningPackages } from '@/lib/bridge';
@@ -42,13 +42,21 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
   const [runningPkgs, setRunningPkgs] = useState<Set<string>>(new Set());
   const [loadingRunning, setLoadingRunning] = useState(false);
 
+  // 防连点保护引用
+  const lastClickRef = useRef<Record<string, number>>({});
+  const lastRefreshTimeRef = useRef<number>(0);
+
   // 组件挂载时自动获取一次运行中的应用列表
   useEffect(() => {
     refreshRunningApps();
   }, []);
 
-  /** 刷新运行中应用列表 */
+  /** 刷新运行中应用列表（包含 1000ms 防连击节流保护） */
   const refreshRunningApps = async () => {
+    const now = Date.now();
+    if (now - lastRefreshTimeRef.current < 1000) return;
+    lastRefreshTimeRef.current = now;
+
     setLoadingRunning(true);
     try {
       const pkgs = await getRunningPackages();
@@ -99,10 +107,17 @@ export function TabApps({ config, handleToggle, handleChange, appList }: TabApps
 
   const toggleApp = (pkg: string) => {
     if (config?.APP_PROXY_ENABLE === 0) return;
+    const now = Date.now();
+    if (now - (lastClickRef.current[pkg] || 0) < 300) {
+      return; // 300ms 内对同一个应用的重复连击忽略
+    }
+    lastClickRef.current[pkg] = now;
+
     const newSet = new Set(checkedSet);
     if (newSet.has(pkg)) newSet.delete(pkg);
     else newSet.add(pkg);
-    handleChange(currentListKey, Array.from(newSet).join('\n'));
+    // 使用空格分隔（匹配 box.config / tproxy.conf 标准格式，避免多行解析问题）
+    handleChange(currentListKey, Array.from(newSet).filter(Boolean).join(' '));
   };
 
   return (
